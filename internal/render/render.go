@@ -18,8 +18,9 @@ type Config struct {
 
 // Renderer draws visualizations to the terminal via tcell.
 type Renderer struct {
-	screen tcell.Screen
-	cfg    Config
+	screen    tcell.Screen
+	cfg       Config
+	maxMaxBar float32 // highest single-frame max bar seen (diagnostics)
 }
 
 // New initializes the terminal (alternate screen buffer, hidden cursor).
@@ -61,52 +62,67 @@ func (r *Renderer) Run(getBars func() []float32, stop <-chan struct{}) {
 
 	start := time.Now()
 	frames := 0
+	var maxSum float32
 	for {
 		select {
 		case <-ticker.C:
-			r.draw(getBars())
+			mb := r.draw(getBars())
+			if mb > r.maxMaxBar {
+				r.maxMaxBar = mb
+			}
+			maxSum += mb
 			r.screen.Show()
 			frames++
 		case ev := <-events:
 			if key, ok := ev.(*tcell.EventKey); ok {
 				if key.Key() == tcell.KeyEscape || key.Rune() == 'q' || key.Rune() == 'Q' ||
 					key.Key() == tcell.KeyCtrlC {
-					elapsed := time.Since(start).Seconds()
-					if elapsed > 0 {
-						log.Printf("render: %d frames in %.1fs (%.1f fps)", frames, elapsed, float64(frames)/elapsed)
-					}
+					r.report(frames, maxSum, start)
 					return
 				}
 			}
 			// EventResize and others: handled implicitly on the next draw
 			// via screen.Size().
 		case <-stop:
-			elapsed := time.Since(start).Seconds()
-			if elapsed > 0 {
-				log.Printf("render: %d frames in %.1fs (%.1f fps)", frames, elapsed, float64(frames)/elapsed)
-			}
+			r.report(frames, maxSum, start)
 			return
 		}
 	}
 }
 
-// draw renders the latest bar frame to the terminal.
-func (r *Renderer) draw(bars []float32) {
+// report prints render statistics to stderr (does not touch the screen).
+func (r *Renderer) report(frames int, maxSum float32, start time.Time) {
+	elapsed := time.Since(start).Seconds()
+	if elapsed <= 0 || frames == 0 {
+		log.Printf("render: %d frames in %.1fs", frames, elapsed)
+		return
+	}
+	log.Printf("render: %d frames in %.1fs (%.1f fps), avg max bar = %.2f, peak max bar = %.2f",
+		frames, elapsed, float64(frames)/elapsed, maxSum/float32(frames), r.maxMaxBar)
+}
+
+// draw renders the latest bar frame and returns the tallest visible bar
+// (for statistics).
+func (r *Renderer) draw(bars []float32) float32 {
 	width, height := r.screen.Size()
 	if len(bars) == 0 || width <= 0 || height <= 0 {
-		return
+		return 0
 	}
 	grid := vis.RenderSpectrum(bars, width, height)
 	r.screen.Clear()
+	maxBar := float32(0)
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
 			cell := grid[row][col]
 			if cell.Rune == ' ' {
 				continue
 			}
-			// M2: single color; color gradients land in M3.
-			style := tcell.StyleDefault.Foreground(tcell.ColorLime)
+			style := tcell.StyleDefault.Foreground(gradientColor(cell.Level))
 			r.screen.SetContent(col, row, cell.Rune, nil, style)
+			if cell.Level > maxBar {
+				maxBar = cell.Level
+			}
 		}
 	}
+	return maxBar
 }

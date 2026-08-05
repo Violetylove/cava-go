@@ -200,9 +200,9 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 
 ### 5.4 自动增益（autosens）
 
-- 维护滑动窗口（如最近 0.5s）的 RMS 能量统计；
-- 增益 = 目标参考能量 / 当前 RMS（带上下限钳制），缓慢自适应，避免音量忽大忽小时频谱过顶或过矮；
-- 用户可设固定 `sensitivity` 覆盖自动模式。
+- **峰值导向**（2026-08-06 修订，替代初稿的 RMS 方案）：对瞬时 bar 帧的最大值做低通平滑（`smoothPeak`），增益 = 目标峰值（默认 0.8）/ smoothPeak，钳制 [0.2, 15] 并一阶平滑；
+- 因增益作用于峰值 bar 本身，数学上保证最高 bar 持续接近目标高度（bars ≈ target），不受输入音量影响——M3 实测播放时段 max bar ≈ 0.8（初稿的 RMS 方案受 crest factor 限制、提升有限，已废弃）；
+- 用户可设固定 `sensitivity` 覆盖自动模式（`AutoSens=false` 时生效）。
 
 ### 5.5 输出契约
 
@@ -266,4 +266,5 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 | 2026-08-05 | 创建本文档（初稿） | 启动 cava-go 项目，确定 Windows 复刻 cava 的总体设计 |
 | 2026-08-05 | 里程碑计划、实现状态跟踪、风险清单、待验证事项迁出至 docs/PROJECT.md | 区分设计文档与项目管理文档：DESIGN.md 只保留设计内容，进度与规范归 PROJECT.md |
 | 2026-08-05 | 修正 gonum FFT 库路径：`dsp/fft` → `dsp/fourier` | M2 实现时发现 gonum 实际无 `dsp/fft` 包（调研结论有误），FFT 在 `dsp/fourier`，窗函数在 `dsp/window` |
+| 2026-08-06 | autosens 由 RMS 导向改为**峰值导向**（§5.4） | M3 实机反馈柱条偏低；RMS 方案受 crest factor 限制提升有限，峰值导向数学上保证最高 bar ≈ 目标高度 |
 

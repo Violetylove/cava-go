@@ -35,11 +35,16 @@ func main() {
 	defer renderer.Fini()
 
 	pipe, err := dsp.New(dsp.Config{
-		FFTSize:    2048,
-		SampleRate: float64(src.SampleRate()),
-		Bars:       64,
-		MinFreq:    20,
-		MaxFreq:    20000,
+		FFTSize:     2048,
+		SampleRate:  float64(src.SampleRate()),
+		Bars:        64,
+		MinFreq:     20,
+		MaxFreq:     20000,
+		AutoSens:    true,
+		Sensitivity: 1.0,
+		TargetPeak:  0.8,
+		Falloff:     2.0,
+		SmoothBars:  true,
 	})
 	if err != nil {
 		log.Fatal("dsp init failed:", err)

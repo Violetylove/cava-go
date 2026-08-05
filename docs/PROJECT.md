@@ -175,6 +175,7 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 | M0 项目初始化 | 完成 | 2026-08-05 | |
 | M1 音频链路 | 完成 | 2026-08-05 | 实测：播放时 RMS 波动（峰值≈0.23）、静音归零；mix format = 48kHz float32 extensible |
 | M2 频谱渲染 | 完成 | 2026-08-05 | 集成实测 239 帧/8.0s（≈30fps）无崩溃；单测覆盖 FFT 峰值定位/半块字符绘制 |
+| M3 观感增强 | 进行中 | | T1-T4 完成；T5 waveform 待下轮 |
 | M2 频谱渲染 | 待办 | | |
 | M3 观感增强 | 待办 | | |
 | M4 配置与交互 | 待办 | | |
@@ -199,10 +200,10 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 | M2-T3 | spectrum 绘制 | 完成 | 2026-08-05 | vis.RenderSpectrum 半块字符，单测覆盖 |
 | M2-T4 | tcell 渲染器 | 完成 | 2026-08-05 | fps ticker（实测 29.9fps）、q/Esc/Ctrl-C 退出 |
 | M2-T5 | 主程序装配 | 完成 | 2026-08-05 | capture→dsp→render 三 goroutine + 信号/duration 退出 |
-| M3-T1 | falloff 平滑 | 待办 | | |
-| M3-T2 | smooth-bars | 待办 | | |
-| M3-T3 | autosens | 待办 | | |
-| M3-T4 | 颜色渐变 | 待办 | | |
+| M3-T1 | falloff 平滑 | 完成 | 2026-08-06 | 峰值保持 + 每秒衰减率可配（默认 2/s），单测验证精确衰减 |
+| M3-T2 | smooth-bars | 完成 | 2026-08-06 | [0.25 0.5 0.25] 卷积，边界不塌陷，单测覆盖 |
+| M3-T3 | autosens | 完成 | 2026-08-06 | 峰值导向：最高 bar 逼近目标 0.8；实机 avg 0.17→0.50（连续音调），peak 0.82-1.0 |
+| M3-T4 | 颜色渐变 | 完成 | 2026-08-06 | 蓝→青→绿→黄→红真彩色插值（cava gradient 1），单测覆盖锚点/插值 |
 | M3-T5 | waveform | 待办 | | |
 | M4-T1 | TOML 配置 | 待办 | | |
 | M4-T2 | 快捷键 | 待办 | | |
@@ -261,3 +262,5 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 4. **事件驱动 + loopback 实测工作正常**：静音时输出全 0 帧（loopback 静音填充），播放时能量波动，时序稳定。
 5. **gonum FFT 在 `dsp/fourier` 而非 `dsp/fft`**（M2）：`fourier.NewFFT(n)` 处理实序列，`Coefficients(dst, seq)` 注意参数顺序。
 6. **Hann 窗相干增益≈0.5**（M2）：加窗后信号能量减半，须除以窗均值（`windowMean`）补偿，否则满幅正弦峰值只有 ~0.5。
+7. **RMS 导向的自动增益不够用**（M3）：受 crest factor 限制，RMS 增益只能把峰值提到 target×crest，对正弦仅 ~1.4 倍。改为**峰值导向**（gain=target/平滑峰值），数学上保证最高 bar ≈ target，直接解决“柱条太低”反馈（avg 0.17→0.50）。
+8. **验证音频素材会影响统计**（M3）：系统 Alarm 音效是间歇 beep，会拉低 avg max bar；验证“柱条高度”用 python 生成的连续音调 wav 更可靠。

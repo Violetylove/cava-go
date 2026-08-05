@@ -17,6 +17,24 @@ type Config struct {
 	MinFreq    float64 // lowest analyzed frequency (default 20)
 	MaxFreq    float64 // highest analyzed frequency (default 20000)
 	Hop        int     // samples between FFT analyses (default FFTSize/2)
+
+	// AutoSens enables automatic gain that adapts to the incoming loudness
+	// (peak-oriented: it drives the smoothed maximum bar toward TargetPeak).
+	AutoSens bool
+	// Sensitivity is a fixed multiplicative gain applied on top of (or
+	// instead of, when AutoSens is off) the autosens gain (default 1).
+	Sensitivity float64
+	// TargetPeak is the smoothed peak bar level the autosens gain aims for,
+	// in [0, 1] (default 0.8).
+	TargetPeak float64
+
+	// Falloff is the per-second peak decay rate in [0, ∞): each analysis
+	// frame the previous bars drop by Falloff * (hop/sampleRate), so a
+	// bar at 1.0 falls to 0 in ~1/Falloff seconds (default 2.0; 0 = off).
+	Falloff float64
+	// SmoothBars applies a [0.25 0.5 0.25] neighbor convolution to the
+	// bars to reduce jaggedness (default true).
+	SmoothBars bool
 }
 
 func (c *Config) defaults() {
@@ -34,6 +52,15 @@ func (c *Config) defaults() {
 	}
 	if c.Hop <= 0 {
 		c.Hop = c.FFTSize / 2
+	}
+	// AutoSens / SmoothBars are explicit (default false in Go); the caller
+	// opts in. Falloff 0 = off. Sensitivity 0 would multiply bars to zero,
+	// so treat 0 as 1 (no fixed gain) unless autosens supplies gain.
+	if c.Sensitivity == 0 {
+		c.Sensitivity = 1
+	}
+	if c.TargetPeak == 0 {
+		c.TargetPeak = 0.8
 	}
 }
 
@@ -57,7 +84,13 @@ type Pipeline struct {
 
 	binRanges [][2]int // [start, end) FFT bins per bar
 	mags      []float64
+	instBars  []float32 // instantaneous (gained) bars
+	prevBars  []float32 // previous smoothed frame, for falloff
 	latest    []float32
+
+	// autosens state
+	smoothPeak float64
+	gain       float64
 }
 
 // New builds a Pipeline with the given config.
@@ -78,8 +111,11 @@ func New(cfg Config) (*Pipeline, error) {
 		ring:       make([]float32, cfg.FFTSize),
 		binRanges:  make([][2]int, cfg.Bars),
 		mags:       make([]float64, cfg.FFTSize/2+1),
+		instBars:   make([]float32, cfg.Bars),
+		prevBars:   make([]float32, cfg.Bars),
 		latest:     make([]float32, cfg.Bars),
 		windowMean: windowMean(win),
+		gain:       cfg.Sensitivity,
 	}
 	p.buildBinRanges()
 	return p, nil
@@ -140,7 +176,8 @@ func (p *Pipeline) Latest() []float32 {
 }
 
 // analyze performs one FFT on the most recent FFTSize samples and updates
-// latest. Caller must hold p.mu.
+// latest through the chain: raw -> gain (autosens) -> falloff -> smooth.
+// Caller must hold p.mu.
 func (p *Pipeline) analyze() {
 	// Reconstruct the most recent FFTSize samples in chronological order
 	// from the ring buffer, apply the window.
@@ -160,6 +197,7 @@ func (p *Pipeline) analyze() {
 		p.mags[k] = m / float64(p.cfg.FFTSize) / p.windowMean
 	}
 
+	// 1) raw bars
 	for b := range p.binRanges {
 		lo, hi := p.binRanges[b][0], p.binRanges[b][1]
 		var sum float64
@@ -170,6 +208,74 @@ func (p *Pipeline) analyze() {
 		if v > 1 {
 			v = 1
 		}
-		p.latest[b] = v
+		p.instBars[b] = v
 	}
+
+	// 2) gain (peak-oriented autosens)
+	g := p.updateGain()
+	for b := range p.instBars {
+		v := p.instBars[b] * float32(g)
+		if v > 1 {
+			v = 1
+		}
+		p.instBars[b] = v
+	}
+
+	// 3) falloff: bars fall toward zero at a fixed rate unless the
+	// instantaneous value is higher (classic peak-hold decay).
+	decay := p.cfg.Falloff * (float64(p.cfg.Hop) / p.cfg.SampleRate)
+	for b := range p.instBars {
+		p.latest[b] = p.instBars[b]
+		if p.prevBars[b]-float32(decay) > p.latest[b] {
+			p.latest[b] = p.prevBars[b] - float32(decay)
+		}
+	}
+
+	// 4) neighbor smoothing
+	if p.cfg.SmoothBars {
+		copy(p.latest, applySmooth(p.latest))
+	}
+	copy(p.prevBars, p.latest)
+}
+
+// applySmooth convolves bars with a [0.25 0.5 0.25] kernel; out-of-range
+// neighbors are treated as the edge bar itself (edges are not pulled down).
+func applySmooth(bars []float32) []float32 {
+	out := make([]float32, len(bars))
+	last := len(bars) - 1
+	for b := range bars {
+		prev := bars[max(b-1, 0)]
+		cur := bars[b]
+		next := bars[min(b+1, last)]
+		out[b] = 0.25*prev + 0.5*cur + 0.25*next
+	}
+	return out
+}
+
+// updateGain returns the gain applied to the current frame. With autosens
+// enabled it drives the smoothed peak bar toward TargetPeak: because the
+// peak bar itself is multiplied by the gain, this keeps the tallest bar
+// near the target height regardless of input loudness (within clamps).
+func (p *Pipeline) updateGain() float64 {
+	if !p.cfg.AutoSens {
+		return p.cfg.Sensitivity
+	}
+	peak := float64(0)
+	for _, v := range p.instBars {
+		if float64(v) > peak {
+			peak = float64(v)
+		}
+	}
+	if p.smoothPeak == 0 {
+		p.smoothPeak = peak
+	} else {
+		p.smoothPeak += 0.1 * (peak - p.smoothPeak)
+	}
+	g := p.cfg.TargetPeak / math.Max(p.smoothPeak, 1e-9)
+	g = math.Max(0.2, math.Min(15, g))
+	p.gain += 0.05 * (g - p.gain)
+	if p.gain < 0.2 {
+		p.gain = 0.2
+	}
+	return p.gain * p.cfg.Sensitivity
 }
