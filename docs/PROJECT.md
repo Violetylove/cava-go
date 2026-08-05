@@ -174,6 +174,7 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 |---|---|---|---|
 | M0 项目初始化 | 完成 | 2026-08-05 | |
 | M1 音频链路 | 完成 | 2026-08-05 | 实测：播放时 RMS 波动（峰值≈0.23）、静音归零；mix format = 48kHz float32 extensible |
+| M2 频谱渲染 | 完成 | 2026-08-05 | 集成实测 239 帧/8.0s（≈30fps）无崩溃；单测覆盖 FFT 峰值定位/半块字符绘制 |
 | M2 频谱渲染 | 待办 | | |
 | M3 观感增强 | 待办 | | |
 | M4 配置与交互 | 待办 | | |
@@ -193,11 +194,11 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 | M1-T2 | PCM 归一化/混音 | 完成 | 2026-08-05 | int16/int32/float32 单测覆盖 |
 | M1-T3 | 能量检测 | 完成 | 2026-08-05 | RMS 函数 + 单测 |
 | M1-T4 | RMS 验证命令 | 完成 | 2026-08-05 | `cava -duration 14s` 实测通过 |
-| M2-T1 | 分帧/加窗/FFT | 待办 | | |
-| M2-T2 | 频率映射 | 待办 | | |
-| M2-T3 | spectrum 绘制 | 待办 | | |
-| M2-T4 | tcell 渲染器 | 待办 | | |
-| M2-T5 | 主程序装配 | 待办 | | |
+| M2-T1 | 分帧/加窗/FFT | 完成 | 2026-08-05 | gonum dsp/fourier；Hann 窗 + 窗增益补偿 |
+| M2-T2 | 频率映射 | 完成 | 2026-08-05 | 对数刻度 20Hz~20kHz→64 bars，单测 1kHz 峰值定位 |
+| M2-T3 | spectrum 绘制 | 完成 | 2026-08-05 | vis.RenderSpectrum 半块字符，单测覆盖 |
+| M2-T4 | tcell 渲染器 | 完成 | 2026-08-05 | fps ticker（实测 29.9fps）、q/Esc/Ctrl-C 退出 |
+| M2-T5 | 主程序装配 | 完成 | 2026-08-05 | capture→dsp→render 三 goroutine + 信号/duration 退出 |
 | M3-T1 | falloff 平滑 | 待办 | | |
 | M3-T2 | smooth-bars | 待办 | | |
 | M3-T3 | autosens | 待办 | | |
@@ -238,7 +239,7 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 
 1. ~~go-wca `LoopbackCaptureSharedEventDriven` 示例在目标机器上的实际可用性~~ ✅ 2026-08-05 已验证（事件驱动 loopback 可用）；
 2. ~~mix format 采样率/位深的实际分布~~ ✅ 本机实测 48kHz / 32-bit float / WAVEFORMATEXTENSIBLE / 2 声道；
-3. tcell 在 Windows Terminal 与 ConHost 下的真彩色与刷新性能实测（M2 验证）；
+3. ~~tcell 在 Windows Terminal 与 ConHost 下的真彩色与刷新性能实测~~ ⏳ M2 已验证渲染帧率稳定 30fps；真彩色渐变待 M3 验证；
 4. 空闲（无音频播放）时 loopback 流的时序与能量行为，确认静音检测阈值（M1 已验证归零，阈值在 M3 autosens 时定）。
 
 ### 附录 C：风险与难点清单
@@ -258,3 +259,5 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 2. **`SetEventHandle` 报拒绝访问**：事件句柄需 `EVENT_ALL_ACCESS` 权限；直接用 `golang.org/x/sys/windows.CreateEvent`（内部用 EVENT_ALL_ACCESS），不要用 `wca.CreateEventExA(..., 0)`。
 3. **`GetBuffer` 返回 `AUDCLNT_S_BUFFER_EMPTY`（0x08890001）**：这是**成功码**（bit31=0），但 go-wca 把所有非 0 HRESULT 当错误返回。需用 `ole.OleError.Code()` 识别并视为“无数据，等下一事件”，否则捕获立即退出。
 4. **事件驱动 + loopback 实测工作正常**：静音时输出全 0 帧（loopback 静音填充），播放时能量波动，时序稳定。
+5. **gonum FFT 在 `dsp/fourier` 而非 `dsp/fft`**（M2）：`fourier.NewFFT(n)` 处理实序列，`Coefficients(dst, seq)` 注意参数顺序。
+6. **Hann 窗相干增益≈0.5**（M2）：加窗后信号能量减半，须除以窗均值（`windowMean`）补偿，否则满幅正弦峰值只有 ~0.5。

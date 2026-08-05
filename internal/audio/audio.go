@@ -10,6 +10,9 @@ type AudioSource interface {
 	// The channel is closed when capture stops or fails.
 	Start() (<-chan []float32, error)
 
+	// SampleRate returns the capture sample rate in Hz. Valid after Start.
+	SampleRate() int
+
 	// Close stops capture and releases resources.
 	Close() error
 }

@@ -1,73 +1,76 @@
 // Command cava-go is a Windows console audio visualizer (cava clone).
 //
-// M1 milestone build: capture system audio via WASAPI loopback and print
-// per-interval RMS energy to verify the audio chain. The full pipeline
-// (DSP + rendering) replaces this in M2.
+// M2 milestone build: capture system audio (WASAPI loopback), transform it
+// via FFT into spectrum bars (internal/dsp) and render them to the terminal
+// with block glyphs (internal/render). Press q / Esc / Ctrl-C to quit.
 package main
 
 import (
 	"flag"
-	"fmt"
+	"log"
 	"os"
+	"os/signal"
 	"time"
 
 	"cava-go/internal/audio"
+	"cava-go/internal/dsp"
+	"cava-go/internal/render"
 )
 
 func main() {
-	duration := flag.Duration("duration", 10*time.Second, "how long to capture")
+	duration := flag.Duration("duration", 0, "auto-exit after duration (0 = run until quit)")
 	flag.Parse()
 
 	src := audio.NewWasapiSource()
 	frames, err := src.Start()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "capture failed:", err)
-		os.Exit(1)
+		log.Fatal("capture failed:", err)
 	}
 	defer src.Close()
 
-	report := time.NewTicker(200 * time.Millisecond)
-	defer report.Stop()
-	timer := time.NewTimer(*duration)
-	defer timer.Stop()
+	renderer, err := render.New(render.Config{FPS: 30})
+	if err != nil {
+		log.Fatal("terminal init failed:", err)
+	}
+	defer renderer.Fini()
 
-	var sum, peak float32
-	var n int
-	reportLine := func() {
-		if n == 0 {
-			fmt.Println("no frames")
-			return
-		}
-		fmt.Printf("frames=%-6d avgRMS=%.4f peakRMS=%.4f\n", n, sum/float32(n), peak)
-		sum, peak, n = 0, 0, 0
+	pipe, err := dsp.New(dsp.Config{
+		FFTSize:    2048,
+		SampleRate: float64(src.SampleRate()),
+		Bars:       64,
+		MinFreq:    20,
+		MaxFreq:    20000,
+	})
+	if err != nil {
+		log.Fatal("dsp init failed:", err)
 	}
 
-	for {
+	// capture goroutine: audio frames -> DSP pipeline.
+	go func() {
+		for frame := range frames {
+			pipe.Process(frame)
+		}
+	}()
+
+	// stop channel: Ctrl-C / duration timer / renderer quit key all close it.
+	stop := make(chan struct{})
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt)
 		select {
-		case frame, ok := <-frames:
-			if !ok {
-				fmt.Println("capture ended")
-				reportLine()
-				if err := src.Close(); err != nil {
-					fmt.Fprintln(os.Stderr, "capture error:", err)
-				}
-				return
-			}
-			rms := audio.RMS(frame)
-			sum += rms
-			if rms > peak {
-				peak = rms
-			}
-			n++
-		case <-report.C:
-			reportLine()
-		case <-timer.C:
-			reportLine()
-			fmt.Println("done")
-			if err := src.Close(); err != nil {
-				fmt.Fprintln(os.Stderr, "capture error:", err)
-			}
-			return
+		case <-sig:
+		case <-timerOrNever(*duration):
 		}
+		close(stop)
+	}()
+
+	renderer.Run(pipe.Latest, stop)
+}
+
+// timerOrNever returns a channel that fires after d, or never when d <= 0.
+func timerOrNever(d time.Duration) <-chan time.Time {
+	if d <= 0 {
+		return make(chan time.Time)
 	}
+	return time.After(d)
 }

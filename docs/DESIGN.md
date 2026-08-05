@@ -65,7 +65,7 @@ cava 是 Linux 下经典的终端音频可视化器（C 语言编写）：
 |---|---|---|
 | 音频捕获 | `github.com/moutend/go-wca` | README 明确支持 **Loopback capturing with shared event mode / timer mode**，仓库自带 `LoopbackCaptureSharedEventDriven` 官方示例；纯 syscall 无 cgo，覆盖 IAudioClient/IAudioCaptureClient 全套 COM 接口 |
 | 终端渲染 | `github.com/gdamore/tcell/v2` | 官方支持 **24-bit 真彩色**、Windows 平台、**脏单元跟踪**（逐帧只发送变化的 cell，适合频谱刷新）；活跃维护 |
-| FFT | `gonum.org/v1/gonum/dsp/fft` | kissfft 移植，含实/复 FFT、DCT、窗函数；生产级、持续维护 |
+| FFT | `gonum.org/v1/gonum/dsp/fourier` | 实/复 FFT、DCT 及窗函数（`dsp/window` 子包）；生产级、持续维护 |
 | 配置解析 | `github.com/pelletier/go-toml/v2` | Go 生态最成熟的 TOML 库 |
 
 ---
@@ -99,7 +99,7 @@ cava 是 Linux 下经典的终端音频可视化器（C 语言编写）：
 | 层 | 库 | 备注 |
 |---|---|---|
 | 捕获 | `moutend/go-wca` | loopback + 事件驱动，官方示例直接当模板 |
-| 处理 | `gonum.org/v1/gonum/dsp/fft` | 实数 FFT + 窗函数 |
+| 处理 | `gonum.org/v1/gonum/dsp/fourier` | 实数 FFT（`dsp/window` 提供窗函数） |
 | 渲染 | `gdamore/tcell/v2` | 真彩色、脏矩形刷新、Windows 支持 |
 | 配置 | `pelletier/go-toml/v2` | TOML 解析 |
 
@@ -265,4 +265,5 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 |---|---|---|
 | 2026-08-05 | 创建本文档（初稿） | 启动 cava-go 项目，确定 Windows 复刻 cava 的总体设计 |
 | 2026-08-05 | 里程碑计划、实现状态跟踪、风险清单、待验证事项迁出至 docs/PROJECT.md | 区分设计文档与项目管理文档：DESIGN.md 只保留设计内容，进度与规范归 PROJECT.md |
+| 2026-08-05 | 修正 gonum FFT 库路径：`dsp/fft` → `dsp/fourier` | M2 实现时发现 gonum 实际无 `dsp/fft` 包（调研结论有误），FFT 在 `dsp/fourier`，窗函数在 `dsp/window` |
 

@@ -36,7 +36,8 @@ type WasapiSource struct {
 	done   chan struct{}
 	frames chan []float32
 
-	closeErr error
+	sampleRate int
+	closeErr   error
 }
 
 // NewWasapiSource returns a new WASAPI loopback source.
@@ -65,6 +66,14 @@ func (s *WasapiSource) Start() (<-chan []float32, error) {
 		return nil, err
 	}
 	return s.frames, nil
+}
+
+// SampleRate returns the capture sample rate in Hz (from the device mix
+// format). Valid after Start has returned successfully.
+func (s *WasapiSource) SampleRate() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sampleRate
 }
 
 // Close stops capture and releases all resources. It is safe to call
@@ -153,6 +162,7 @@ func (s *WasapiSource) captureLoop(ready chan<- error) error {
 		ready <- err
 		return nil
 	}
+	s.sampleRate = int(mixFormat.NSamplesPerSec)
 
 	flags := uint32(wca.AUDCLNT_STREAMFLAGS_LOOPBACK | wca.AUDCLNT_STREAMFLAGS_EVENTCALLBACK)
 	if err := audioClient.Initialize(wca.AUDCLNT_SHAREMODE_SHARED, flags, 0, 0, mixFormat, nil); err != nil {
