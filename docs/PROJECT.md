@@ -173,7 +173,7 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 | 里程碑 | 状态 | 完成日期 | 备注 |
 |---|---|---|---|
 | M0 项目初始化 | 完成 | 2026-08-05 | |
-| M1 音频链路 | 待办 | | |
+| M1 音频链路 | 完成 | 2026-08-05 | 实测：播放时 RMS 波动（峰值≈0.23）、静音归零；mix format = 48kHz float32 extensible |
 | M2 频谱渲染 | 待办 | | |
 | M3 观感增强 | 待办 | | |
 | M4 配置与交互 | 待办 | | |
@@ -189,10 +189,10 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 | M0-T2 | go.mod 与依赖 | 完成 | 2026-08-05 | go-wca v0.3.0 / tcell v2.13.10 / gonum v0.17.0 / go-toml v2.4.3 |
 | M0-T3 | 目录骨架 | 完成 | 2026-08-05 | go build/vet 通过 |
 | M0-T4 | 文档落位 | 完成 | 2026-08-05 | DESIGN/PROJECT 已入库（b82107e） |
-| M1-T1 | AudioSource + wasapi loopback | 待办 | | |
-| M1-T2 | PCM 归一化/混音 | 待办 | | |
-| M1-T3 | 能量检测 | 待办 | | |
-| M1-T4 | RMS 验证命令 | 待办 | | |
+| M1-T1 | AudioSource + wasapi loopback | 完成 | 2026-08-05 | 事件驱动；go-wca 两个坑见附录 D |
+| M1-T2 | PCM 归一化/混音 | 完成 | 2026-08-05 | int16/int32/float32 单测覆盖 |
+| M1-T3 | 能量检测 | 完成 | 2026-08-05 | RMS 函数 + 单测 |
+| M1-T4 | RMS 验证命令 | 完成 | 2026-08-05 | `cava -duration 14s` 实测通过 |
 | M2-T1 | 分帧/加窗/FFT | 待办 | | |
 | M2-T2 | 频率映射 | 待办 | | |
 | M2-T3 | spectrum 绘制 | 待办 | | |
@@ -236,10 +236,10 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 
 ### 附录 B：待验证事项（进入 M1 前）
 
-1. go-wca `LoopbackCaptureSharedEventDriven` 示例在目标机器（Win10/11 各版本）上的实际可用性；
-2. mix format 采样率/位深的实际分布（48kHz float32 / 44.1kHz int16 等），确认归一化分支覆盖；
-3. tcell 在 Windows Terminal 与 ConHost 下的真彩色与刷新性能实测；
-4. 空闲（无音频播放）时 loopback 流的时序与能量行为，确认静音检测阈值。
+1. ~~go-wca `LoopbackCaptureSharedEventDriven` 示例在目标机器上的实际可用性~~ ✅ 2026-08-05 已验证（事件驱动 loopback 可用）；
+2. ~~mix format 采样率/位深的实际分布~~ ✅ 本机实测 48kHz / 32-bit float / WAVEFORMATEXTENSIBLE / 2 声道；
+3. tcell 在 Windows Terminal 与 ConHost 下的真彩色与刷新性能实测（M2 验证）；
+4. 空闲（无音频播放）时 loopback 流的时序与能量行为，确认静音检测阈值（M1 已验证归零，阈值在 M3 autosens 时定）。
 
 ### 附录 C：风险与难点清单
 
@@ -251,3 +251,10 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 | 真彩色终端兼容 | 颜色失真 | 能力检测降级（DESIGN.md §6.3） |
 | 默认设备切换 | 捕获中断 | 监听设备变化并自动重连（DESIGN.md §4.5） |
 | go-wca 维护风险（社区较小） | 依赖风险 | 捕获层隔离在 `internal/audio`，可替换实现 |
+
+### 附录 D：M1 关键经验（2026-08-05）
+
+1. **go-wca 的 `WAVEFORMATEX` 不能做内存映射**：Go 把结构体大小向上取整到对齐倍数（18→20 字节），导致后续字段全部偏移。mix format 必须按**固定字节偏移**解析（见 `internal/audio/convert.go` 的 `off*` 常量）。
+2. **`SetEventHandle` 报拒绝访问**：事件句柄需 `EVENT_ALL_ACCESS` 权限；直接用 `golang.org/x/sys/windows.CreateEvent`（内部用 EVENT_ALL_ACCESS），不要用 `wca.CreateEventExA(..., 0)`。
+3. **`GetBuffer` 返回 `AUDCLNT_S_BUFFER_EMPTY`（0x08890001）**：这是**成功码**（bit31=0），但 go-wca 把所有非 0 HRESULT 当错误返回。需用 `ole.OleError.Code()` 识别并视为“无数据，等下一事件”，否则捕获立即退出。
+4. **事件驱动 + loopback 实测工作正常**：静音时输出全 0 帧（loopback 静音填充），播放时能量波动，时序稳定。
