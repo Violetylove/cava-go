@@ -51,12 +51,12 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 		}
 	}
 
-	barWidth := width / len(bars)
+	barWidth := width/len(bars) + 1 // one extra column per bar for thickness
 	if barWidth < 1 {
 		barWidth = 1
 	}
-	if barWidth > 6 {
-		barWidth = 6
+	if barWidth > 8 {
+		barWidth = 8
 	}
 	const gap = 1
 

@@ -43,7 +43,7 @@ func main() {
 		AutoSens:    true,
 		Sensitivity: 1.0,
 		TargetPeak:  0.8,
-		Falloff:     2.0,
+		Falloff:     3.0,
 		SmoothBars:  true,
 	})
 	if err != nil {

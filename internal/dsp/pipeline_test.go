@@ -145,6 +145,23 @@ func TestAutoSensTargetsPeak(t *testing.T) {
 	}
 }
 
+func TestAutoSensAttack(t *testing.T) {
+	// From silence, a burst must raise bars within a few analyses
+	// (attack α=0.3 ≈ 64ms; the old symmetric α=0.05 caused ~0.6s lag).
+	p, err := New(Config{SampleRate: 48000, AutoSens: true, SmoothBars: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	silence := make([]float32, 1024)
+	for i := 0; i < 40; i++ {
+		p.Process(silence) // settle at silence
+	}
+	feedSine(p, 0.3, 7) // ~3 analyses of a burst
+	if got := maxBar(p.Latest()); got < 0.4 {
+		t.Errorf("bars must rise fast after a burst, got %v", got)
+	}
+}
+
 func TestFalloffDecay(t *testing.T) {
 	// After the signal stops, bars must decay toward zero at
 	// Falloff * (hop/sampleRate) per analysis frame.

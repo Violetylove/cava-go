@@ -46,18 +46,18 @@ func TestRenderSpectrumQuarterBar(t *testing.T) {
 }
 
 func TestRenderSpectrumLayout(t *testing.T) {
-	// width 10, bars 3 → barWidth 3; with a 1-col gap the set overflows
-	// (12 > 10), so the bar count is reduced to 2 and bars are sampled
-	// evenly: indices 0 and 2. Bar 0 (value 0) at cols 0-2, gap col 3,
-	// bar 2 (value 1) at cols 4-6.
+	// width 10, bars 3 → barWidth 4 (+1 for thickness); with a 1-col gap
+	// the set overflows (15 > 10), so the bar count is reduced to 2 and
+	// bars are sampled evenly: indices 0 and 2. Bar 0 (value 0) at cols
+	// 0-3, gap col 4, bar 2 (value 1) at cols 5-8.
 	grid := RenderSpectrum([]float32{0, 1, 1}, 10, 2)
-	if grid[1][4].Rune != runeFull || grid[1][6].Rune != runeFull {
-		t.Errorf("bar at cols 4-6 should be full, got %q %q", grid[1][4].Rune, grid[1][6].Rune)
+	if grid[1][5].Rune != runeFull || grid[1][8].Rune != runeFull {
+		t.Errorf("bar at cols 5-8 should be full, got %q %q", grid[1][5].Rune, grid[1][8].Rune)
 	}
-	if grid[1][3].Rune != runeEmpty {
-		t.Errorf("gap column should be empty, got %q", grid[1][3].Rune)
+	if grid[1][4].Rune != runeEmpty {
+		t.Errorf("gap column should be empty, got %q", grid[1][4].Rune)
 	}
-	// First bar (value 0) at cols 0-2 stays empty.
+	// First bar (value 0) at cols 0-3 stays empty.
 	if grid[1][0].Rune != runeEmpty {
 		t.Errorf("empty bar col 0 should be empty, got %q", grid[1][0].Rune)
 	}

@@ -256,6 +256,12 @@ func applySmooth(bars []float32) []float32 {
 // enabled it drives the smoothed peak bar toward TargetPeak: because the
 // peak bar itself is multiplied by the gain, this keeps the tallest bar
 // near the target height regardless of input loudness (within clamps).
+//
+// Responsiveness: the smoothed peak follows quickly (α=0.2) and the gain
+// uses asymmetric attack/release — it rises fast (α=0.3, ~3 analyses ≈ 64ms)
+// so bars track transients immediately, but falls slowly (α=0.05) to avoid
+// pumping on momentary loud peaks. This keeps perceived latency well under
+// ~150ms (a previous symmetric α=0.05 caused ~0.6s lag, reported as ~1s).
 func (p *Pipeline) updateGain() float64 {
 	if !p.cfg.AutoSens {
 		return p.cfg.Sensitivity
@@ -269,11 +275,15 @@ func (p *Pipeline) updateGain() float64 {
 	if p.smoothPeak == 0 {
 		p.smoothPeak = peak
 	} else {
-		p.smoothPeak += 0.1 * (peak - p.smoothPeak)
+		p.smoothPeak += 0.2 * (peak - p.smoothPeak)
 	}
 	g := p.cfg.TargetPeak / math.Max(p.smoothPeak, 1e-9)
 	g = math.Max(0.2, math.Min(15, g))
-	p.gain += 0.05 * (g - p.gain)
+	if g > p.gain {
+		p.gain += 0.3 * (g - p.gain) // attack: track rising loudness fast
+	} else {
+		p.gain += 0.05 * (g - p.gain) // release: ease down slowly
+	}
 	if p.gain < 0.2 {
 		p.gain = 0.2
 	}
