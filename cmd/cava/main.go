@@ -28,7 +28,7 @@ func main() {
 	}
 	defer src.Close()
 
-	renderer, err := render.New(render.Config{FPS: 30})
+	renderer, err := render.New(render.Config{FPS: 60})
 	if err != nil {
 		log.Fatal("terminal init failed:", err)
 	}

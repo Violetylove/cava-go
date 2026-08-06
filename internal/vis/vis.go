@@ -29,6 +29,16 @@ const (
 	runeTop    = '▀' // top half filled
 	runeBottom = '▄' // bottom half filled
 	runeFull   = '█' // both halves filled
+
+	// Rounded bar-top glyphs (1px corner radius), drawn on the row that
+	// contains the highest filled half-block:
+	//  - upper-half top: left corner lacks top-right quadrant (▜), right
+	//    corner lacks top-left quadrant (▟);
+	//  - lower-half top: left/lower-left (▖) and right/lower-right (▗).
+	runeRoundUpLeft  = '▜'
+	runeRoundUpRight = '▟'
+	runeRoundLoLeft  = '▖'
+	runeRoundLoRight = '▗'
 )
 
 // RenderSpectrum lays out bars as block-glyph columns over a width×height
@@ -84,25 +94,61 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 		half := int(math.Round(float64(v) * float64(height) * 2)) // filled half-blocks
 
 		colStart := i * (barWidth + gap)
-		for c := 0; c < barWidth; c++ {
+		// Actual visible columns of this bar (clipped by the canvas width).
+		visible := barWidth
+		if width-colStart < visible {
+			visible = width - colStart
+		}
+		// Rounded top: the row holding the highest filled half-block draws
+		// corner glyphs on its first/last visible columns (needs ≥2 visible
+		// columns; single-column bars stay flat).
+		rowTop := -1
+		topIsUpper := false
+		if half > 0 && visible >= 2 {
+			t := half - 1
+			rowTop = height - 1 - t/2
+			topIsUpper = t%2 == 1
+		}
+
+		for c := 0; c < visible; c++ {
 			col := colStart + c
-			if col >= width {
-				break
-			}
 			for row := 0; row < height; row++ {
 				// Half-block indices of this row, counted from the bottom.
 				bottom := 2 * (height - 1 - row)
 				top := bottom + 1
 				var rn rune
-				switch {
-				case bottom < half && top < half:
-					rn = runeFull
-				case top < half:
-					rn = runeTop
-				case bottom < half:
-					rn = runeBottom
-				default:
-					rn = runeEmpty
+				if row == rowTop {
+					switch {
+					case c == 0:
+						if topIsUpper {
+							rn = runeRoundUpLeft
+						} else {
+							rn = runeRoundLoLeft
+						}
+					case c == visible-1:
+						if topIsUpper {
+							rn = runeRoundUpRight
+						} else {
+							rn = runeRoundLoRight
+						}
+					default:
+						if topIsUpper {
+							rn = runeFull
+						} else {
+							rn = runeBottom
+						}
+					}
+				} else {
+					switch {
+					case bottom < half && top < half:
+						rn = runeFull
+					case top < half:
+						rn = runeTop
+					case bottom < half:
+						rn = runeBottom
+					default:
+						rn = runeEmpty
+					}
 				}
 				level := float32(1) // vertical position: 0 bottom .. 1 top
 				if height > 1 {
