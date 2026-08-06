@@ -33,8 +33,11 @@ const (
 
 // RenderSpectrum lays out bars as block-glyph columns over a width×height
 // character grid (height rows, each 2 half-blocks tall). Bars are drawn
-// bottom-up. Each bar gets an equal share of the terminal width (no gap),
-// clamped to [1, 6] columns — adjacent bars make them visibly thicker.
+// bottom-up. Layout: each bar gets barWidth columns plus a 1-column gap;
+// if the full set would overflow the canvas, the number of bars is reduced
+// (sampled evenly across the spectrum) instead of squeezing or truncating.
+// Cell.Level is the row's vertical position within its bar (0 = bottom,
+// 1 = top), used for the per-bar vertical color gradient.
 func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 	if height <= 0 || width <= 0 || len(bars) == 0 {
 		return nil
@@ -55,18 +58,23 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 	if barWidth > 6 {
 		barWidth = 6
 	}
-	step := barWidth
+	const gap = 1
 
-	drawable := width / step
-	if drawable > len(bars) {
-		drawable = len(bars)
-	}
-	if drawable < 1 {
-		drawable = 1
+	drawable := len(bars)
+	if drawable*(barWidth+gap) > width {
+		drawable = width / (barWidth + gap)
+		if drawable < 1 {
+			drawable = 1
+		}
 	}
 
-	for b := 0; b < drawable; b++ {
-		v := bars[b]
+	for i := 0; i < drawable; i++ {
+		// Evenly sample bars across the full spectrum when reduced.
+		idx := 0
+		if drawable > 1 {
+			idx = i * (len(bars) - 1) / (drawable - 1)
+		}
+		v := bars[idx]
 		if v < 0 {
 			v = 0
 		}
@@ -75,7 +83,7 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 		}
 		half := int(math.Round(float64(v) * float64(height) * 2)) // filled half-blocks
 
-		colStart := b * step
+		colStart := i * (barWidth + gap)
 		for c := 0; c < barWidth; c++ {
 			col := colStart + c
 			if col >= width {
@@ -96,7 +104,11 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 				default:
 					rn = runeEmpty
 				}
-				grid[row][col] = Cell{Rune: rn, Level: v}
+				level := float32(1) // vertical position: 0 bottom .. 1 top
+				if height > 1 {
+					level = 1 - float32(row)/float32(height-1)
+				}
+				grid[row][col] = Cell{Rune: rn, Level: level}
 			}
 		}
 	}

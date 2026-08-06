@@ -7,13 +7,10 @@ func TestGradientColorAnchors(t *testing.T) {
 		level float32
 		want  [3]int32
 	}{
-		{0, [3]int32{0, 0, 255}},
-		{0.25, [3]int32{0, 255, 255}},
-		{0.5, [3]int32{0, 255, 0}},
-		{0.75, [3]int32{255, 255, 0}},
-		{1, [3]int32{255, 0, 0}},
-		{-1, [3]int32{0, 0, 255}}, // clamped
-		{2, [3]int32{255, 0, 0}},  // clamped
+		{0, [3]int32{0, 0, 160}},   // deep blue
+		{1, [3]int32{0, 255, 255}}, // bright cyan
+		{-1, [3]int32{0, 0, 160}},  // clamped
+		{2, [3]int32{0, 255, 255}}, // clamped
 	}
 	for _, c := range cases {
 		r, g, b := gradientColor(c.level).RGB()
@@ -25,9 +22,9 @@ func TestGradientColorAnchors(t *testing.T) {
 }
 
 func TestGradientColorInterpolation(t *testing.T) {
-	// Midpoint between blue (0,0,255) and cyan (0,255,255).
-	r, g, b := gradientColor(0.125).RGB()
-	if r != 0 || g != 127 || b != 255 {
-		t.Errorf("mid blue-cyan: got (%d,%d,%d), want (0,127,255)", r, g, b)
+	// Midpoint between deep blue (0,0,160) and bright cyan (0,255,255).
+	r, g, b := gradientColor(0.5).RGB()
+	if r != 0 || g != 127 || b != 207 {
+		t.Errorf("mid gradient: got (%d,%d,%d), want (0,127,207)", r, g, b)
 	}
 }

@@ -8,13 +8,11 @@ type gradientStop struct {
 	color [3]int32 // R, G, B
 }
 
-// spectrumGradient is cava's default "gradient 1" palette.
+// spectrumGradient is the two-color vertical gradient inside each bar:
+// deep blue at the bottom rising to bright cyan at the top.
 var spectrumGradient = []gradientStop{
-	{0.00, [3]int32{0, 0, 255}},   // blue
-	{0.25, [3]int32{0, 255, 255}}, // cyan
-	{0.50, [3]int32{0, 255, 0}},   // green
-	{0.75, [3]int32{255, 255, 0}}, // yellow
-	{1.00, [3]int32{255, 0, 0}},   // red
+	{0.0, [3]int32{0, 0, 160}},   // deep blue (bar base)
+	{1.0, [3]int32{0, 255, 255}}, // bright cyan (bar tip)
 }
 
 // gradientColor maps a bar level in [0, 1] to a truecolor by linear RGB

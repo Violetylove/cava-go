@@ -111,6 +111,11 @@ func (r *Renderer) draw(bars []float32) float32 {
 	grid := vis.RenderSpectrum(bars, width, height)
 	r.screen.Clear()
 	maxBar := float32(0)
+	for _, v := range bars {
+		if v > maxBar {
+			maxBar = v
+		}
+	}
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
 			cell := grid[row][col]
@@ -119,9 +124,6 @@ func (r *Renderer) draw(bars []float32) float32 {
 			}
 			style := tcell.StyleDefault.Foreground(gradientColor(cell.Level))
 			r.screen.SetContent(col, row, cell.Rune, nil, style)
-			if cell.Level > maxBar {
-				maxBar = cell.Level
-			}
 		}
 	}
 	return maxBar
