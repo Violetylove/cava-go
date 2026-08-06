@@ -42,29 +42,30 @@ func TestRenderSpectrumQuarterBar(t *testing.T) {
 }
 
 func TestRenderSpectrumLayout(t *testing.T) {
-	// width 10, bars 3 → barWidth 3, step 4 → draws 2 bars (8 cols).
+	// width 10, bars 3 → barWidth 3, step 3: bars occupy cols 0-2, 3-5, 6-8.
 	grid := RenderSpectrum([]float32{0, 1, 1}, 10, 2)
-	// Second bar starts at col 4 and is full.
-	if grid[1][4].Rune != runeFull {
-		t.Errorf("bar 1 col should be full, got %q", grid[1][4].Rune)
+	// Second bar (cols 3-5) is full.
+	if grid[1][3].Rune != runeFull || grid[1][5].Rune != runeFull {
+		t.Errorf("bar 1 cols should be full, got %q %q", grid[1][3].Rune, grid[1][5].Rune)
 	}
+	// Third bar starts at col 6.
 	if grid[1][6].Rune != runeFull {
-		t.Errorf("bar 1 col 6 should be full, got %q", grid[1][6].Rune)
+		t.Errorf("bar 2 col 6 should be full, got %q", grid[1][6].Rune)
 	}
-	// Gap column (col 3) must be empty.
-	if grid[1][3].Rune != runeEmpty {
-		t.Errorf("gap column should be empty, got %q", grid[1][3].Rune)
+	// Trailing column 9 stays empty.
+	if grid[1][9].Rune != runeEmpty {
+		t.Errorf("trailing column should be empty, got %q", grid[1][9].Rune)
 	}
 }
 
 func TestRenderSpectrumNarrow(t *testing.T) {
-	// Narrow terminal: only one bar fits.
+	// Narrow terminal: 1 column per bar, two bars fit.
 	grid := RenderSpectrum([]float32{1, 1, 1}, 2, 2)
 	if grid[1][0].Rune != runeFull {
 		t.Errorf("first bar should render, got %q", grid[1][0].Rune)
 	}
-	if grid[1][1].Rune != runeEmpty {
-		t.Errorf("col 1 should be gap/empty, got %q", grid[1][1].Rune)
+	if grid[1][1].Rune != runeFull {
+		t.Errorf("second bar should render in col 1, got %q", grid[1][1].Rune)
 	}
 }
 

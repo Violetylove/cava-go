@@ -33,7 +33,8 @@ const (
 
 // RenderSpectrum lays out bars as block-glyph columns over a width×height
 // character grid (height rows, each 2 half-blocks tall). Bars are drawn
-// bottom-up; up to three columns per bar, with a one-column gap.
+// bottom-up. Each bar gets an equal share of the terminal width (no gap),
+// clamped to [1, 6] columns — adjacent bars make them visibly thicker.
 func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 	if height <= 0 || width <= 0 || len(bars) == 0 {
 		return nil
@@ -51,10 +52,10 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 	if barWidth < 1 {
 		barWidth = 1
 	}
-	if barWidth > 3 {
-		barWidth = 3
+	if barWidth > 6 {
+		barWidth = 6
 	}
-	step := barWidth + 1 // bar columns plus one gap column
+	step := barWidth
 
 	drawable := width / step
 	if drawable > len(bars) {

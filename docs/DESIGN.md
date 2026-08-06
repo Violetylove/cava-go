@@ -47,7 +47,7 @@ cava 是 Linux 下经典的终端音频可视化器（C 语言编写）：
 |---|---|---|
 | ALSA/Pulse/PipeWire 捕获 | WASAPI Loopback（共享模式） | P0 |
 | spectrum（频谱柱状图） | 柱状图 + 半块字符 | P0 |
-| waveform（时域波形） | 波形绘制 | P1 |
+| waveform（时域波形） | 波形绘制 | 取消（2026-08-06，只做柱状图） |
 | spectrum_waveform（叠加） | 上频谱下波形 | P2 |
 | wavescope（示波器） | 扫线示波器 | P2 |
 | sgram（频谱图） | 频谱随时间滚动 | P2 |
@@ -217,11 +217,11 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 
 | 类型 | 说明 | 优先级 |
 |---|---|---|
-| `spectrum` | 频谱柱状图，**首期默认** | P0 |
-| `waveform` | 时域波形（滚动/实时） | P1 |
-| `spectrum_waveform` | 上半频谱 + 下半波形叠加 | P2 |
-| `wavescope` | 示波器扫线（能量调制宽度） | P2 |
-| `sgram` | 频谱图：频谱随时间向上/下滚动 | P2 |
+| `spectrum` | 频谱柱状图，**唯一实现的可视化** | P0 |
+| `waveform` | ~~时域波形~~ 已取消（2026-08-06 用户决策：只做柱状图） | — |
+| `spectrum_waveform` | 上半频谱 + 下半波形叠加（依赖 waveform，一并取消） | — |
+| `wavescope` | 示波器扫线（能量调制宽度） | P2 暂不实现 |
+| `sgram` | 频谱图：频谱随时间向上/下滚动 | P2 暂不实现 |
 
 ### 6.2 渲染管线
 
@@ -267,4 +267,5 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 | 2026-08-05 | 里程碑计划、实现状态跟踪、风险清单、待验证事项迁出至 docs/PROJECT.md | 区分设计文档与项目管理文档：DESIGN.md 只保留设计内容，进度与规范归 PROJECT.md |
 | 2026-08-05 | 修正 gonum FFT 库路径：`dsp/fft` → `dsp/fourier` | M2 实现时发现 gonum 实际无 `dsp/fft` 包（调研结论有误），FFT 在 `dsp/fourier`，窗函数在 `dsp/window` |
 | 2026-08-06 | autosens 由 RMS 导向改为**峰值导向**（§5.4） | M3 实机反馈柱条偏低；RMS 方案受 crest factor 限制提升有限，峰值导向数学上保证最高 bar ≈ 目标高度 |
+| 2026-08-06 | 取消 waveform 系列可视化（§2.1/§6.1），柱条数量 64→51、加宽（无间隔均分宽度） | 用户决策：只做柱状图并优化美观（数量-20%、宽度×2） |
 

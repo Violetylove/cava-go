@@ -37,7 +37,7 @@ func main() {
 	pipe, err := dsp.New(dsp.Config{
 		FFTSize:     2048,
 		SampleRate:  float64(src.SampleRate()),
-		Bars:        64,
+		Bars:        51, // user preference: 20% fewer than 64 for a cleaner look
 		MinFreq:     20,
 		MaxFreq:     20000,
 		AutoSens:    true,
