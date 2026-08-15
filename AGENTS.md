@@ -1,0 +1,43 @@
+# AGENTS.md — cava-go
+
+Windows 终端音频可视化器（Linux cava 的复刻，Go 实现）：捕获系统播放音频（WASAPI loopback）→ FFT 频谱 → tcell 终端彩色柱状图动画。
+
+## Project
+
+- 纯 Go，**仅支持 Windows**（依赖 WASAPI），Go 1.26.5，module `cava-go`
+- 技术栈：`moutend/go-wca`（WASAPI 捕获）、`gonum dsp/fourier`（FFT）、`gdamore/tcell/v2`（终端渲染）、`pelletier/go-toml/v2`（配置，尚未使用）、`go-ole`、`x/sys/windows`
+- 入口：`cmd/cava/main.go`（flag：`-duration` 调试自动退出；运行时 q/Esc/Ctrl-C 退出）
+- 设计事实来源 `docs/DESIGN.md`；执行/进度/开发规范事实来源 `docs/PROJECT.md`（§3 开发规范、§4 任务拆分、§5 进度跟踪）
+
+## Commands
+
+- `go build ./...` / `go vet ./...` / `go test ./...` — 构建 / 静态检查 / 测试（提交前必须全绿）
+- `go run ./cmd/cava` — 运行可视化器（需真实终端，建议 Windows Terminal）
+- `go build -o cava.exe ./cmd/cava` — 产出单二进制
+- 无 lint/CI 配置；验证靠 `gofmt` + `go vet` + `go test`
+
+## Architecture
+
+数据流：capture goroutine → dsp → render 主循环（`pipe.Latest()` 拉取最新帧，丢中间帧保实时）。
+
+- `internal/audio` — `AudioSource` 接口（`Start() (<-chan []float32, error)` / `SampleRate()` / `Close()`）；`WasapiSource` 实现 WASAPI loopback 事件驱动捕获、PCM 归一化混单声道、`RMS()` 能量检测
+- `internal/dsp` — `Pipeline`：环形缓冲分帧 → Hann 窗（含增益补偿）→ gonum FFT → 对数频率映射（bin→bar）→ 峰值导向 autosens（attack/release 非对称平滑）→ falloff 衰减 → smooth-bars 卷积；并发安全（内部 mutex）
+- `internal/vis` — 数据契约 `Frame`；`Cell{Rune, Level}`（Level=柱内纵向位置 0..1，驱动渐变）；`RenderSpectrum`：半块/四分之一块字符、柱顶 1px 圆角、柱宽自适应 + 溢出均匀减柱
+- `internal/render` — tcell 渲染器：fps ticker（60）、真彩色双色渐变、清屏重绘、退出时 stderr 打印 fps/avg/peak max bar 统计
+- `internal/config` — 占位（M4 才实现配置化，勿提前扩展）
+- `cmd/cava` — 装配三 goroutine
+
+## Conventions
+
+- **Git**：主分支 `main`；任务分支 `feature/<task-id>-<slug>` → squash merge；提交信息**约定式提交、英文**（`feat(audio): ...`）；语义化版本标签（详见 PROJECT.md §3.1）
+- **代码**：`gofmt`/`go vet` 零告警；错误用 `fmt.Errorf("...: %w", err)` 包装不吞错；**代码与注释英文**、文档中文；`internal/dsp` 核心算法必须有单测
+- **架构约束（禁止违反）**：依赖单向 `cmd → internal/*`；DSP/渲染层**禁止出现 WASAPI 类型**（必须走 `audio.AudioSource` 接口）；帧数据只经 `vis.Frame` 契约
+- **文档同步**：实现完成后更新 `docs/PROJECT.md` §5 进度跟踪；设计变更更新 `docs/DESIGN.md` §7 变更记录；新增第三方依赖需先讨论
+- **Windows 特有**：`go-wca` 的 `WAVEFORMATEX` Go 结构有尾部 padding（18→20 字节），**禁止用于内存映射**——mix format 必须按 `internal/audio/convert.go` 的固定字节偏移（`off*` 常量）解析；`SetEventHandle` 用 `x/sys/windows.CreateEvent`（EVENT_ALL_ACCESS）；`GetBuffer` 的 `AUDCLNT_S_BUFFER_EMPTY`（0x08890001）是成功码需按空包处理
+
+## Notes
+
+- 里程碑状态：M0-M2 完成，M3 进行中（T1-T4 完成；T5 waveform 已按用户决策取消），M4（配置/快捷键/resize）/M5（打磨发布）待办
+- 已知坑与调试经验：见 `docs/PROJECT.md` 附录 D（go-wca padding、AUDCLNT_S_BUFFER_EMPTY、Hann 窗补偿、RMS vs 峰值增益、验证音频素材选择、CRLF 行尾噪音——gofmt 写 LF 后 `git status` 误报 M，`git checkout -- <file>` 还原）
+- go-wca v0.3.0 模块不含 `_example`（示例只在 GitHub 仓库）；离线开发以 `pkg/wca` 源码为准
+- （待补充）
