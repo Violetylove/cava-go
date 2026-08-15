@@ -27,7 +27,7 @@ cava 是 Linux 下经典的终端音频可视化器（C 语言编写）：
 
 - 不播放、不录制、不导出音频；
 - 不做音频设备管理 GUI；
-- 首期只面向 Windows（Windows 10 1809+ / Windows Terminal），但**架构上预留 Linux 后端**（ALSA/PulseAudio），便于未来跨平台。
+- **平台支持**：Windows（WASAPI，Windows 10 1809+ / Windows Terminal）+ **Linux（PulseAudio，2026-08-16 新增）**；macOS 未实现（无原生 loopback）。
 
 ### 1.4 语言选型
 
@@ -98,7 +98,8 @@ cava 是 Linux 下经典的终端音频可视化器（C 语言编写）：
 
 | 层 | 库 | 备注 |
 |---|---|---|
-| 捕获 | `moutend/go-wca` | loopback + 事件驱动，官方示例直接当模板 |
+| 捕获（Windows） | `moutend/go-wca` | loopback + 事件驱动，官方示例直接当模板 |
+| 捕获（Linux） | **libpulse-dev（cgo，仅 Linux）** | `pa_simple` 记录默认输出 monitor（§4.6），请求 float32/48k/2ch 由 PulseAudio 重采样 |
 | 处理 | `gonum.org/v1/gonum/dsp/fourier` | 实数 FFT（`dsp/window` 提供窗函数） |
 | 渲染 | `gdamore/tcell/v2` | 真彩色、脏矩形刷新、Windows 支持 |
 | 配置 | `pelletier/go-toml/v2` | TOML 解析 |
@@ -167,6 +168,16 @@ Windows 上捕获"系统正在播放的音频"的标准途径是 **WASAPI loopba
 - **设备变化**：默认设备切换/采样率变化时重启捕获流（先监听 `IAudioEndpointVolume` 或定期校验）；
 - **无播放音频**：loopback 流依然产生静音数据，能量检测保证画面归零而非闪烁噪声；
 - **独占模式冲突**：若其他程序占用了独占模式，共享模式 loopback 会失败——捕获错误并给出可读提示。
+
+### 4.6 Linux 捕获（PulseAudio，2026-08-16 新增）
+
+- 实现：`internal/audio/pulse_linux.go`（build tag `linux`，cgo + libpulse-dev 的 `pa_simple` API）；
+- 捕获源：**默认输出的 monitor**（`@DEFAULT_MONITOR@`，即默认 sink 的 .monitor），等价于"系统输出"；无需声卡虚拟设备；
+- **格式协商**：请求 `float32le / 48000Hz / 2ch`，由 PulseAudio 自动重采样/转换，管线直接复用共享 `convertFrame` 混单声道；
+- 读取循环：每次读 10ms 包（阻塞），包间轮询 stop 通道实现优雅退出；`pa_simple` 调用全部收敛在单 goroutine（非线程安全）；
+- 工厂：`internal/audio/source_linux.go` 的 `NewSource()` 返回 `PulseSource`（Windows 对应 `NewWasapiSource`）；
+- **构建依赖**：Linux 构建需 `libpulse-dev`（`apt install libpulse-dev`）；Windows 构建不受影响（build tag 隔离，保持无 cgo）；
+- 已知差异：PulseAudio monitor 在无播放时**不产生数据**（与 WASAPI 静音填充不同），静音判定由 dsp 的数据陈旧检测兜底。
 
 ---
 
@@ -279,4 +290,5 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 | 2026-08-15 | **M4 落地**：TOML 配置系统（§6.4）、快捷键（空格暂停/+/-灵敏度/r热重载）、配置驱动与热重载；render 支持可变 FPS/SetGradient/按键上报；dsp 加 SetSensitivity | M4 里程碑（配置与交互） |
 | 2026-08-15 | **修复：运行期禁止 stderr 日志**（M4 bug）——log 与 tcell 画面共用终端，按键提示文本会污染屏幕且差异刷新不修复被覆盖区域（表现为残留+日志混乱） | 用户反馈：按 +/- 后界面残留、日志打印在画面上 |
 | 2026-08-15 | **M5 完成（v1.0.0）**：启动失败中文可读报错、benchmark 性能验证（DSP ≈0.45% 单核 / 渲染 ≈0.3%）、`-version` 版本注入、README 发布 | M5 里程碑（打磨发布） |
+| 2026-08-16 | **Linux 后端**（§4.6）：PulseAudio monitor 捕获（`pulse_linux.go`，cgo `pa_simple`，`@DEFAULT_MONITOR@`），工厂 `NewSource()` 按平台选择；go.mod go 1.26.5→1.26（放宽工具链）；CI 增加 Linux 构建验证 job | 跨平台改造（用户决策）——WSL2 端到端验证：105fps、peak 0.64（440Hz 正弦） |
 

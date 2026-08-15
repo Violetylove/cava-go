@@ -1,10 +1,10 @@
 # AGENTS.md — cava-go
 
-Windows 终端音频可视化器（Linux cava 的复刻，Go 实现）：捕获系统播放音频（WASAPI loopback）→ FFT 频谱 → tcell 终端彩色柱状图动画。**已发布 v1.0.0（M0-M5 全部完成）**。
+Windows 终端音频可视化器（Linux cava 的复刻，Go 实现）：捕获系统正在播放的音频（Windows WASAPI / **Linux PulseAudio**）→ FFT 频谱 → tcell 终端彩色柱状图动画。**已发布 v1.0.0（M0-M5 全部完成），Windows + Linux 双平台**。
 
 ## Project
 
-- 纯 Go，**仅支持 Windows**（依赖 WASAPI），Go 1.26.5，module `cava-go`
+- 纯 Go（**Linux 构建含 cgo**：libpulse-dev），Go 1.26，module `cava-go`；支持 Windows（WASAPI）+ Linux（PulseAudio）
 - 技术栈：`moutend/go-wca`（WASAPI 捕获）、`gonum dsp/fourier`（FFT）、`gdamore/tcell/v2`（终端渲染）、`pelletier/go-toml/v2`（配置解析）、`go-ole`、`x/sys/windows`
 - 入口：`cmd/cava/main.go`（flag：`-config`、`-duration`、`-version`；运行时 q/Esc/Ctrl-C 退出）
 - 设计事实来源 `docs/DESIGN.md`；执行/进度/开发规范事实来源 `docs/PROJECT.md`（§3 开发规范、§4 任务拆分、§5 进度跟踪）；用户使用说明 `README.md`
@@ -20,7 +20,7 @@ Windows 终端音频可视化器（Linux cava 的复刻，Go 实现）：捕获�
 
 数据流：capture goroutine → dsp → render 主循环（`pipe.Latest()` 拉取最新帧，丢中间帧保实时）。
 
-- `internal/audio` — `AudioSource` 接口（`Start() (<-chan []float32, error)` / `SampleRate()` / `Close()`）；`WasapiSource` 实现 WASAPI loopback 事件驱动捕获、PCM 归一化混单声道、`RMS()` 能量检测
+- `internal/audio` — `AudioSource` 接口（`Start() (<-chan []float32, error)` / `SampleRate()` / `Close()`）；`NewSource()` 工厂按平台选择：Windows `WasapiSource`（WASAPI loopback 事件驱动）、Linux `PulseSource`（cgo `pa_simple` 记录 `@DEFAULT_MONITOR@`）；共享 PCM 归一化混单声道与 `RMS()`
 - `internal/dsp` — `Pipeline`：环形缓冲分帧 → Hann 窗（含增益补偿）→ gonum FFT → 对数频率映射（bin→bar）→ 峰值导向 autosens（attack/release 非对称平滑）→ **时间驱动** falloff（Latest 按真实时间衰减，音频流停止也回落）→ smooth-bars 卷积；并发安全（内部 mutex）；`SetSensitivity` 运行时热调
 - `internal/vis` — 数据契约 `Frame`；`Cell{Rune, Fg, Bg}`（Fg/Bg = 上下半块的渐变级，双色渲染）；`RenderSpectrum`：平头半块字符（`▀▄█`）、静音死区（不足 1 半块归零）、柱宽自适应 + 间隔 + 溢出均匀减柱
 - `internal/render` — tcell 渲染器：**差异刷新**（只更新变化格子并擦除消失的格子，resize 全量重绘）、可变 FPS（默认 120）、`SetGradient`/`SetFPS` 热更新、按键 action 上报、退出时 stderr 打印 fps/avg/peak max bar 统计
@@ -38,7 +38,8 @@ Windows 终端音频可视化器（Linux cava 的复刻，Go 实现）：捕获�
 
 ## Notes
 
-- **状态：v1.0.0 已发布**（M0-M5 全部完成）；已知限制：真彩色不降级、默认设备切换不自动重连、仅 spectrum 一种可视化（waveform 系列已按用户决策取消）
+- **状态：v1.0.0 已发布**（M0-M5 全部完成）；平台：Windows + Linux（2026-08-16 新增）；已知限制：macOS 未实现、真彩色不降级、默认设备切换不自动重连、仅 spectrum 一种可视化
+- **Linux 构建依赖**：`libpulse-dev`（`sudo apt install libpulse-dev`）；Windows 构建无 cgo；CI 有 Linux 验证 job
 - 已知坑与调试经验：见 `docs/PROJECT.md` 附录 D（go-wca padding、AUDCLNT_S_BUFFER_EMPTY、Hann 窗补偿、RMS vs 峰值增益、终端无真圆角、运行期 stderr 日志污染、时间驱动 falloff、instFloor 死区、CRLF 行尾噪音）
 - go-wca v0.3.0 模块不含 `_example`（示例只在 GitHub 仓库）；离线开发以 `pkg/wca` 源码为准
 - （待补充）

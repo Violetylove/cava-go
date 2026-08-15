@@ -1,6 +1,6 @@
 # cava-go
 
-Windows 终端音频可视化器 —— Linux [cava](https://github.com/karlstav/cava) 的 Go 复刻：捕获系统正在播放的音频（WASAPI loopback），经 FFT 处理以彩色柱状图实时渲染到终端。
+Windows 终端音频可视化器 —— Linux [cava](https://github.com/karlstav/cava) 的 Go 复刻：捕获系统正在播放的音频（**Windows WASAPI / Linux PulseAudio**），经 FFT 处理以彩色柱状图实时渲染到终端。
 
 ## 特性
 
@@ -9,7 +9,7 @@ Windows 终端音频可视化器 —— Linux [cava](https://github.com/karlstav
 - **双色垂直渐变**（可配置）、峰值回落动画（falloff）、相邻柱条平滑
 - **120fps 平滑渲染**（差异刷新，仅更新变化的格子）
 - **TOML 配置 + 热重载**（`r` 键）
-- 纯 Go、单二进制、无 cgo，仅支持 Windows（Windows 10 1809+ / Windows Terminal）
+- 纯 Go、单二进制；**Windows（Windows 10 1809+ / Windows Terminal）+ Linux（PulseAudio）**；macOS 暂不支持
 
 ## 构建与运行
 
@@ -21,7 +21,9 @@ go build -ldflags "-X main.version=v1.0.0" -o cava.exe ./cmd/cava
 
 或直接运行：`go run ./cmd/cava`。
 
-首次运行会在 `%APPDATA%/cava-go/config.toml` 自动生成**带注释的默认配置**。
+**Linux 构建**需安装 PulseAudio 开发头文件：`sudo apt install libpulse-dev`（Windows 构建无需任何依赖）。
+
+首次运行会在 `%APPDATA%/cava-go/config.toml`（Linux 为 `~/.config/cava-go/config.toml`）自动生成**带注释的默认配置**。
 
 ## 快捷键
 
@@ -59,7 +61,8 @@ go build -ldflags "-X main.version=v1.0.0" -o cava.exe ./cmd/cava
 
 ## 技术栈
 
-- [go-wca](https://github.com/moutend/go-wca) —— WASAPI loopback 音频捕获
+- [go-wca](https://github.com/moutend/go-wca) —— Windows WASAPI loopback 音频捕获
+- libpulse-dev —— Linux PulseAudio 输出捕获（`@DEFAULT_MONITOR@`）
 - [gonum dsp/fourier](https://pkg.go.dev/gonum.org/v1/gonum/dsp/fourier) —— FFT
 - [tcell/v2](https://github.com/gdamore/tcell) —— 终端渲染
 - [go-toml/v2](https://github.com/pelletier/go-toml) —— 配置解析

@@ -43,3 +43,35 @@ jobs:
         with:
           files: cava.exe
           generate_release_notes: true
+
+  # Cross-platform guard: verify the Linux backend (PulseAudio) keeps
+  # building and its unit tests stay green. Attaches the Linux binary too.
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install PulseAudio dev headers
+        run: sudo apt-get update && sudo apt-get install -y libpulse-dev
+
+      - name: Verify (linux/amd64)
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build (linux/amd64)
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ github.ref_name }}" \
+            -o cava-linux ./cmd/cava
+
+      - name: Upload Linux binary
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cava-linux

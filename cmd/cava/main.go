@@ -50,7 +50,7 @@ func main() {
 		fatal("配置文件加载失败（可删除配置文件后重新生成默认配置）", err)
 	}
 
-	src := audio.NewWasapiSource()
+	src := audio.NewSource()
 	frames, err := src.Start()
 	if err != nil {
 		fatal("音频捕获启动失败（请确认存在可用的音频输出设备且未被其他程序独占）", err)
