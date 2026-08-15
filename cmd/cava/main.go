@@ -28,7 +28,7 @@ func main() {
 	}
 	defer src.Close()
 
-	renderer, err := render.New(render.Config{FPS: 60})
+	renderer, err := render.New(render.Config{FPS: 120})
 	if err != nil {
 		log.Fatal("terminal init failed:", err)
 	}
@@ -40,6 +40,7 @@ func main() {
 		Bars:        51, // user preference: 20% fewer than 64 for a cleaner look
 		MinFreq:     20,
 		MaxFreq:     20000,
+		Hop:         512, // ~94 analyses/s (vs 47 at hop 1024): smoother animation
 		AutoSens:    true,
 		Sensitivity: 1.0,
 		TargetPeak:  0.8,

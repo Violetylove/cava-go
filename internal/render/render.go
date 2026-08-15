@@ -13,7 +13,7 @@ import (
 
 // Config configures the terminal renderer.
 type Config struct {
-	FPS int // target frames per second (default 30)
+	FPS int // target frames per second (default 60)
 }
 
 // Renderer draws visualizations to the terminal via tcell.
@@ -21,13 +21,19 @@ type Renderer struct {
 	screen    tcell.Screen
 	cfg       Config
 	maxMaxBar float32 // highest single-frame max bar seen (diagnostics)
+
+	// dirty-rect state: which cells were drawn last frame. Only changed
+	// cells are touched, so tcell's Show emits just the diffs instead of
+	// the whole screen every frame (Clear marks everything dirty).
+	prevW, prevH int
+	prevDrawn    []bool
 }
 
 // New initializes the terminal (alternate screen buffer, hidden cursor).
 // Call Fini before exiting the program.
 func New(cfg Config) (*Renderer, error) {
 	if cfg.FPS <= 0 {
-		cfg.FPS = 30
+		cfg.FPS = 60
 	}
 	s, err := tcell.NewScreen()
 	if err != nil {
@@ -40,7 +46,13 @@ func New(cfg Config) (*Renderer, error) {
 	// background color shows through in empty areas.
 	s.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorLime))
 	s.Clear()
-	return &Renderer{screen: s, cfg: cfg}, nil
+	return newWithScreen(s, cfg), nil
+}
+
+// newWithScreen builds a renderer around an existing screen (used by tests
+// with a SimulationScreen).
+func newWithScreen(s tcell.Screen, cfg Config) *Renderer {
+	return &Renderer{screen: s, cfg: cfg}
 }
 
 // Fini restores the terminal and releases resources.
@@ -103,15 +115,20 @@ func (r *Renderer) report(frames int, maxSum float32, start time.Time) {
 		frames, elapsed, float64(frames)/elapsed, maxSum/float32(frames), r.maxMaxBar)
 }
 
-// draw renders the latest bar frame and returns the tallest visible bar
-// (for statistics).
+// draw renders the latest bar frame with dirty-rect updates and returns
+// the tallest visible bar (for statistics).
 func (r *Renderer) draw(bars []float32) float32 {
 	width, height := r.screen.Size()
 	if len(bars) == 0 || width <= 0 || height <= 0 {
 		return 0
 	}
+	// Full redraw on resize or first frame.
+	if width != r.prevW || height != r.prevH || r.prevDrawn == nil {
+		r.screen.Clear()
+		r.prevDrawn = make([]bool, width*height)
+		r.prevW, r.prevH = width, height
+	}
 	grid := vis.RenderSpectrum(bars, width, height)
-	r.screen.Clear()
 	maxBar := float32(0)
 	for _, v := range bars {
 		if v > maxBar {
@@ -120,16 +137,21 @@ func (r *Renderer) draw(bars []float32) float32 {
 	}
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
+			idx := row*width + col
 			cell := grid[row][col]
-			if cell.Fg < 0 {
-				continue
+			if cell.Fg >= 0 {
+				// Foreground shades the filled half-block, background the
+				// other half — continuous two-tone gradient.
+				style := tcell.StyleDefault.
+					Foreground(gradientColor(cell.Fg)).
+					Background(gradientColor(cell.Bg))
+				r.screen.SetContent(col, row, cell.Rune, nil, style)
+				r.prevDrawn[idx] = true
+			} else if r.prevDrawn[idx] {
+				// Erase cells that were drawn last frame but are empty now.
+				r.screen.SetContent(col, row, ' ', nil, tcell.StyleDefault)
+				r.prevDrawn[idx] = false
 			}
-			// Foreground shades the filled half-block, background the other
-			// half — continuous two-tone gradient, no dark line on tops.
-			style := tcell.StyleDefault.
-				Foreground(gradientColor(cell.Fg)).
-				Background(gradientColor(cell.Bg))
-			r.screen.SetContent(col, row, cell.Rune, nil, style)
 		}
 	}
 	return maxBar
