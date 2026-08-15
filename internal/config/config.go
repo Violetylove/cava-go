@@ -123,17 +123,60 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// WriteDefault writes the default configuration to path, creating
-// directories as needed.
+// defaultConfigText is the commented default configuration written on
+// first run. Values must stay in sync with Default() — enforced by
+// TestDefaultConfigTextParses.
+const defaultConfigText = `# cava-go 配置文件
+# 修改后按 r 热重载；结构性参数（bars / fft_size / hop / 频率）变更需重启生效
+
+[general]
+# 渲染帧率（帧/秒）
+fps = 120
+# 柱状条数量（显示时按终端宽度自适应减少）
+bars = 51
+# 自动增益：让最高柱条接近 target_peak 高度
+autosens = true
+# 固定灵敏度倍率（autosens 关闭时生效）
+sensitivity = 1.0
+
+[dsp]
+# FFT 窗口大小（采样点数）
+fft_size = 2048
+# 相邻 FFT 分析间隔（越小分析越频繁，动画越平滑）
+hop = 512
+# 分析的最低/最高频率（Hz）
+min_freq = 20.0
+max_freq = 20000.0
+# autosens 目标峰值高度（0~1）
+target_peak = 0.8
+
+[smoothing]
+# 柱条回落速度（每秒衰减比例，0 为关闭）
+falloff = 3.0
+# 相邻柱条平滑
+smooth_bars = true
+
+[color]
+# 渐变颜色（#RRGGBB）：柱条底部 / 顶部
+gradient_bottom = '#0000A0'
+gradient_top = '#00FFFF'
+
+[keys]
+# 快捷键（单字符）
+quit = 'q'
+pause = ' '
+sens_up = '='
+sens_down = '-'
+reload = 'r'
+`
+
+// WriteDefault writes the commented default configuration to path,
+// creating directories as needed.
 func WriteDefault(path string) error {
-	data, err := toml.Marshal(Default())
-	if err != nil {
-		return fmt.Errorf("config: marshal default: %w", err)
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("config: mkdir: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(defaultConfigText), 0o644); err != nil {
 		return fmt.Errorf("config: write %s: %w", path, err)
 	}
 	return nil

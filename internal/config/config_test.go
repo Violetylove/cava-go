@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestDefault(t *testing.T) {
@@ -65,11 +67,31 @@ func TestWriteDefaultRoundTrip(t *testing.T) {
 	if err := WriteDefault(path); err != nil {
 		t.Fatal(err)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The commented template must contain real comments.
+	if len(data) == 0 || data[0] != '#' {
+		t.Error("generated default config should start with comments")
+	}
 	c, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.General.FPS != 120 || c.DSP.Hop != 512 {
 		t.Errorf("round-trip mismatch: %+v / %+v", c.General, c.DSP)
+	}
+}
+
+func TestDefaultConfigTextParses(t *testing.T) {
+	// The commented default template must stay in sync with Default()
+	// (prevents drift when one of them is edited).
+	var c Config
+	if err := toml.Unmarshal([]byte(defaultConfigText), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c != Default() {
+		t.Errorf("default config text drifted from Default():\ngot  %+v\nwant %+v", c, Default())
 	}
 }
