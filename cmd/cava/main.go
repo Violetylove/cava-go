@@ -79,24 +79,23 @@ func main() {
 	}
 
 	// key actions: pause / sensitivity / config reload.
+	// NOTE: never log to stderr here — it shares the terminal with the
+	// tcell screen and would corrupt the display.
 	actions := make(chan render.KeyAction, 8)
 	go func() {
 		for a := range actions {
 			switch a {
 			case render.KeyPause:
 				paused.Store(!paused.Load())
-				log.Printf("paused: %v", paused.Load())
 			case render.KeySensUp:
 				cfg.General.Sensitivity += 0.2
 				pipe.SetSensitivity(cfg.General.Sensitivity)
-				log.Printf("sensitivity: %.1f", cfg.General.Sensitivity)
 			case render.KeySensDown:
 				cfg.General.Sensitivity -= 0.2
 				if cfg.General.Sensitivity < 0.2 {
 					cfg.General.Sensitivity = 0.2
 				}
 				pipe.SetSensitivity(cfg.General.Sensitivity)
-				log.Printf("sensitivity: %.1f", cfg.General.Sensitivity)
 			case render.KeyReload:
 				reload(&cfg, &pipe, &pipeMu, renderer, sampleRate, *configPath)
 			}
@@ -120,12 +119,12 @@ func main() {
 }
 
 // reload re-reads the config, rebuilds the analysis pipeline when
-// structural parameters changed, and hot-applies the rest.
+// structural parameters changed, and hot-applies the rest. It never logs:
+// stderr shares the terminal with the tcell screen.
 func reload(cfg *config.Config, pipe **dsp.Pipeline, pipeMu *sync.RWMutex,
 	renderer *render.Renderer, sampleRate int, path string) {
 	newCfg, err := loadConfig(path)
 	if err != nil {
-		log.Println("reload failed:", err)
 		return
 	}
 	structural := newCfg.General.Bars != cfg.General.Bars ||
@@ -138,16 +137,12 @@ func reload(cfg *config.Config, pipe **dsp.Pipeline, pipeMu *sync.RWMutex,
 		pipeMu.Lock()
 		*pipe = np
 		pipeMu.Unlock()
-		log.Println("reload: analysis pipeline rebuilt")
 	} else {
 		(*pipe).SetSensitivity(newCfg.General.Sensitivity)
 	}
-	if err := renderer.SetGradient(newCfg.Color.GradientBottom, newCfg.Color.GradientTop); err != nil {
-		log.Println("reload: gradient:", err)
-	}
+	_ = renderer.SetGradient(newCfg.Color.GradientBottom, newCfg.Color.GradientTop)
 	renderer.SetFPS(newCfg.General.FPS)
 	*cfg = newCfg
-	log.Println("config reloaded")
 }
 
 // newPipeline builds a dsp pipeline from the configuration.
