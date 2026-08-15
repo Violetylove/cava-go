@@ -45,19 +45,19 @@ cava 是 Linux 下经典的终端音频可视化器（C 语言编写）：
 
 | cava 特性 | Windows 对应实现 | 优先级 |
 |---|---|---|
-| ALSA/Pulse/PipeWire 捕获 | WASAPI Loopback（共享模式） | P0 |
-| spectrum（频谱柱状图） | 柱状图 + 半块字符 | P0 |
-| waveform（时域波形） | 波形绘制 | 取消（2026-08-06，只做柱状图） |
-| spectrum_waveform（叠加） | 上频谱下波形 | P2 |
-| wavescope（示波器） | 扫线示波器 | P2 |
-| sgram（频谱图） | 频谱随时间滚动 | P2 |
-| 自动增益 autosens | 滑动窗口 RMS 动态增益 | P1 |
-| 平滑（falloff / smooth-bars） | 指数衰减 + 相邻 bar 加权 | P1 |
-| 颜色渐变（可配置色带） | 真彩色渐变（降级 256 色） | P1 |
-| 帧率控制 | render ticker（默认 30/60fps） | P1 |
-| 配置文件 `~/.config/cava/config` | TOML（对齐 cava 配置节） | P1 |
-| 键盘交互 | tcell 事件 + 快捷键 | P2 |
-| 立体声/多声道 | 混单声道（可配左右分离） | P2 |
+| ALSA/Pulse/PipeWire 捕获 | WASAPI Loopback（共享模式） | P0 ✅ |
+| spectrum（频谱柱状图） | 柱状图 + 半块字符 | P0 ✅ |
+| waveform（时域波形） | — | 取消（2026-08-06，只做柱状图） |
+| spectrum_waveform（叠加） | — | 取消（依赖 waveform） |
+| wavescope（示波器） | — | 暂不实现 |
+| sgram（频谱图） | — | 暂不实现 |
+| 自动增益 autosens | **峰值导向**动态增益（§5.4） | P1 ✅ |
+| 平滑（falloff / smooth-bars） | 时间驱动衰减 + 相邻 bar 加权 | P1 ✅ |
+| 颜色渐变（可配置色带） | **双色**垂直渐变（§6.2） | P1 ✅ |
+| 帧率控制 | render ticker（默认 **120fps**） | P1 ✅ |
+| 配置文件 `~/.config/cava/config` | TOML（§6.4，首次运行生成带注释模板） | P1 ✅ |
+| 键盘交互 | tcell 事件 + 快捷键（§6.5） | P2 ✅ |
+| 立体声/多声道 | 混单声道（左右分离未实现） | P2 ✅ |
 
 ### 2.2 关键调研结论（2026-08 验证）
 
@@ -252,7 +252,8 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 
 ### 6.5 交互（P2）
 
-- 快捷键：`q` 退出、空格 暂停/恢复、`Tab`/数字 切换可视化类型、`+`/`-` 调整灵敏度、`r` 重载配置；
+- 快捷键（实际实现）：`q`/`Esc`/`Ctrl-C` 退出、空格 暂停/恢复（画面冻结）、`=`/`-` 调节灵敏度倍率（`Pipeline.SetSensitivity`，默认步进 0.2）、`r` 热重载配置；键位可在 `[keys]` 节自定义；
+- 未实现：`Tab`/数字切换可视化（仅 spectrum 一种）、按键提示的屏幕内反馈（避免 stderr 污染画面）；
 - 事件处理非阻塞：渲染帧循环中 select 键盘事件，不阻塞画面。
 
 ---
