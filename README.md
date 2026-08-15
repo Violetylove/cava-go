@@ -15,7 +15,8 @@ Windows 终端音频可视化器 —— Linux [cava](https://github.com/karlstav
 
 ```bash
 go build -o cava.exe ./cmd/cava
-./cava.exe
+# 带版本号构建（-version 显示）
+go build -ldflags "-X main.version=v1.0.0" -o cava.exe ./cmd/cava
 ```
 
 或直接运行：`go run ./cmd/cava`。

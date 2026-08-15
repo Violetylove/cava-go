@@ -8,6 +8,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -21,20 +22,38 @@ import (
 	"cava-go/internal/render"
 )
 
+// version is the build version, overridden at build time via
+// -ldflags "-X main.version=<ver>".
+var version = "dev"
+
+// fatal prints a human-readable error to stderr and exits. Safe because it
+// only runs before the terminal screen becomes active (stderr would corrupt
+// the tcell display otherwise — see PROJECT.md 附录 D).
+func fatal(msg string, err error) {
+	fmt.Fprintf(os.Stderr, "cava-go: %s\n详情: %v\n", msg, err)
+	os.Exit(1)
+}
+
 func main() {
 	configPath := flag.String("config", "", "path to config.toml (default: %APPDATA%/cava-go/config.toml)")
 	duration := flag.Duration("duration", 0, "auto-exit after duration (0 = run until quit)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("cava-go %s\n", version)
+		return
+	}
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
-		log.Fatal(err)
+		fatal("配置文件加载失败（可删除配置文件后重新生成默认配置）", err)
 	}
 
 	src := audio.NewWasapiSource()
 	frames, err := src.Start()
 	if err != nil {
-		log.Fatal("capture failed:", err)
+		fatal("音频捕获启动失败（请确认存在可用的音频输出设备且未被其他程序独占）", err)
 	}
 	defer src.Close()
 	sampleRate := src.SampleRate()
@@ -49,13 +68,16 @@ func main() {
 		KeyReload:      keyRune(cfg.Keys.Reload),
 	})
 	if err != nil {
-		log.Fatal("terminal init failed:", err)
+		fatal("界面初始化失败（请在 Windows Terminal 或 Windows 10 1809+ 控制台中运行）", err)
 	}
 	defer renderer.Fini()
 
 	// pipeMu guards pipe so a config reload can swap in a rebuilt pipeline.
 	var pipeMu sync.RWMutex
-	pipe := newPipeline(cfg, sampleRate)
+	pipe, err := newPipeline(cfg, sampleRate)
+	if err != nil {
+		fatal("分析管线初始化失败", err)
+	}
 
 	// capture goroutine: audio frames -> DSP pipeline.
 	go func() {
@@ -133,7 +155,10 @@ func reload(cfg *config.Config, pipe **dsp.Pipeline, pipeMu *sync.RWMutex,
 		newCfg.DSP.MinFreq != cfg.DSP.MinFreq ||
 		newCfg.DSP.MaxFreq != cfg.DSP.MaxFreq
 	if structural {
-		np := newPipeline(newCfg, sampleRate)
+		np, err := newPipeline(newCfg, sampleRate)
+		if err != nil {
+			return
+		}
 		pipeMu.Lock()
 		*pipe = np
 		pipeMu.Unlock()
@@ -146,8 +171,8 @@ func reload(cfg *config.Config, pipe **dsp.Pipeline, pipeMu *sync.RWMutex,
 }
 
 // newPipeline builds a dsp pipeline from the configuration.
-func newPipeline(cfg config.Config, sampleRate int) *dsp.Pipeline {
-	p, err := dsp.New(dsp.Config{
+func newPipeline(cfg config.Config, sampleRate int) (*dsp.Pipeline, error) {
+	return dsp.New(dsp.Config{
 		FFTSize:     cfg.DSP.FFTSize,
 		SampleRate:  float64(sampleRate),
 		Bars:        cfg.General.Bars,
@@ -160,10 +185,6 @@ func newPipeline(cfg config.Config, sampleRate int) *dsp.Pipeline {
 		Falloff:     cfg.Smooth.Falloff,
 		SmoothBars:  cfg.Smooth.SmoothBars,
 	})
-	if err != nil {
-		log.Fatal("dsp init failed:", err)
-	}
-	return p
 }
 
 // loadConfig loads the config from path (or the default location), writing
