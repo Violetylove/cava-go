@@ -59,7 +59,10 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 	for r := range grid {
 		grid[r] = make([]Cell, width)
 		for c := range grid[r] {
-			grid[r][c].Rune = runeEmpty
+			// Empty cells must carry Fg/Bg = -1 so the renderer skips them;
+			// zero values would be treated as "content" and paint the gap
+			// columns with the bottom gradient color.
+			grid[r][c] = Cell{Rune: runeEmpty, Fg: -1, Bg: -1}
 		}
 	}
 
