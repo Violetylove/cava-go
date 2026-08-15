@@ -119,10 +119,14 @@ func (r *Renderer) draw(bars []float32) float32 {
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
 			cell := grid[row][col]
-			if cell.Rune == ' ' {
+			if cell.Fg < 0 {
 				continue
 			}
-			style := tcell.StyleDefault.Foreground(gradientColor(cell.Level))
+			// Foreground shades the filled half-block, background the other
+			// half — continuous two-tone gradient, no dark line on tops.
+			style := tcell.StyleDefault.
+				Foreground(gradientColor(cell.Fg)).
+				Background(gradientColor(cell.Bg))
 			r.screen.SetContent(col, row, cell.Rune, nil, style)
 		}
 	}

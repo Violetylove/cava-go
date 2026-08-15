@@ -16,11 +16,11 @@ func TestRenderSpectrumFullBar(t *testing.T) {
 			}
 		}
 	}
-	if grid[0][0].Level != 1 {
-		t.Errorf("top row level = %v, want 1", grid[0][0].Level)
+	if grid[0][0].Fg != 1 {
+		t.Errorf("top row upper half level = %v, want 1", grid[0][0].Fg)
 	}
-	if grid[1][0].Level != 0 {
-		t.Errorf("bottom row level = %v, want 0", grid[1][0].Level)
+	if grid[1][0].Bg != 0 {
+		t.Errorf("bottom row lower half level = %v, want 0", grid[1][0].Bg)
 	}
 }
 

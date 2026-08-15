@@ -17,9 +17,15 @@ type Frame struct {
 type Cell struct {
 	// Rune is the glyph to draw; ' ' means empty.
 	Rune rune
-	// Level in [0, 1] is the bar height at this cell, used for color
-	// gradients. Negative means no bar content.
-	Level float32
+	// Fg is the gradient level (0 bottom .. 1 top) shading the FILLED
+	// half-block (the glyph's foreground color).
+	// Bg is the gradient level shading the OTHER half-block area (the
+	// glyph's background). Shading it with the gradient instead of the
+	// terminal background removes the dark line on half-block bar tops and
+	// doubles the vertical color resolution for a smooth gradient.
+	// Negative values mean "no content" (cell is empty).
+	Fg float32
+	Bg float32
 }
 
 // Block glyphs. Each terminal row spans two "half-blocks" vertically,
@@ -99,7 +105,8 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 		for c := 0; c < visible; c++ {
 			col := colStart + c
 			for row := 0; row < height; row++ {
-				// Half-block indices of this row, counted from the bottom.
+				// Half-block indices of this row, counted from the bottom
+				// (0 = bottommost half-block, 2*height-1 = topmost).
 				bottom := 2 * (height - 1 - row)
 				top := bottom + 1
 				var rn rune
@@ -113,11 +120,23 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 				default:
 					rn = runeEmpty
 				}
-				level := float32(1) // vertical position: 0 bottom .. 1 top
-				if height > 1 {
-					level = 1 - float32(row)/float32(height-1)
+				if rn == runeEmpty {
+					grid[row][col] = Cell{Rune: runeEmpty, Fg: -1, Bg: -1}
+					continue
 				}
-				grid[row][col] = Cell{Rune: rn, Level: level}
+				maxIdx := float32(2*height - 1)
+				loLevel := float32(bottom) / maxIdx
+				hiLevel := float32(top) / maxIdx
+				// Fg shades the filled half-block, Bg the other half so the
+				// bar reads as one continuous vertical gradient.
+				switch rn {
+				case runeTop:
+					grid[row][col] = Cell{Rune: rn, Fg: hiLevel, Bg: loLevel}
+				case runeBottom:
+					grid[row][col] = Cell{Rune: rn, Fg: loLevel, Bg: hiLevel}
+				default:
+					grid[row][col] = Cell{Rune: rn, Fg: hiLevel, Bg: loLevel}
+				}
 			}
 		}
 	}
