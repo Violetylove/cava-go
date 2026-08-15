@@ -266,3 +266,4 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 8. **验证音频素材会影响统计**（M3）：系统 Alarm 音效是间歇 beep，会拉低 avg max bar；验证“柱条高度”用 python 生成的连续音调 wav 更可靠。
 9. **终端做不出“真圆角”柱顶**（M3）：字符网格最小单元是直角四分之一块，挖角/收窄都只是台阶；cava 本身是平头，用户看到的“圆角”来自终端渲染层（如 kitty 的 `block_shape=rounded`），Windows Terminal 不支持。结论：平头方柱最兼容——在支持圆角化的终端下会自动圆角。已回退（`fix(vis)` 提交）。
 10. **运行期禁止向 stderr 写日志**（M4 bug）：`log`/`fmt.Fprintln(os.Stderr)` 与 tcell 画面共用同一终端，文本会直接打印在画面上；而差异刷新只更新自己模型里变化的格子，**不会修复被日志覆盖的区域**，造成“残留 + 日志混排”。规则：运行期零终端输出，日志仅限启动错误（tcell 初始化前）与退出统计（画面还原后）。
+11. **cgo 与交叉编译**（跨平台）：Linux 后端（`pulse_linux.go`）用 cgo + libpulse-dev，导致 **Linux 版只能在 Linux 环境编译**（本机用 WSL 验证、CI 用 ubuntu runner 原生构建）；Windows 侧无 cgo 可任意交叉编译。若未来要“纯 Go 全平台一条命令交叉编译”，需自写 PulseAudio simple protocol 客户端（放弃 cgo）。另：WSL 验证流程要点——`wsl -u root` 免密装包、Go 用 apt 的 1.26（避免大文件镜像下载）、`go.mod` 精确版本（如 1.26.5）会触发工具链下载（需放宽为 `go 1.26`）、`/mnt/c` 上编译需 `-buildvcs=false`、依赖代理用 `goproxy.cn`。

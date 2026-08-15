@@ -39,7 +39,7 @@ Windows 终端音频可视化器（Linux cava 的复刻，Go 实现）：捕获�
 ## Notes
 
 - **状态：v1.0.0 已发布**（M0-M5 全部完成）；平台：Windows + Linux（2026-08-16 新增）；已知限制：macOS 未实现、真彩色不降级、默认设备切换不自动重连、仅 spectrum 一种可视化
-- **Linux 构建依赖**：`libpulse-dev`（`sudo apt install libpulse-dev`）；Windows 构建无 cgo；CI 有 Linux 验证 job
+- **Linux 构建依赖**：`libpulse-dev`（`sudo apt install libpulse-dev`）；**Linux 版含 cgo 需在 Linux 环境编译**（CI ubuntu runner 原生构建，本机可用 WSL），Windows 版无 cgo 可任意交叉编译；CI 有 Linux 验证 job
 - 已知坑与调试经验：见 `docs/PROJECT.md` 附录 D（go-wca padding、AUDCLNT_S_BUFFER_EMPTY、Hann 窗补偿、RMS vs 峰值增益、终端无真圆角、运行期 stderr 日志污染、时间驱动 falloff、instFloor 死区、CRLF 行尾噪音）
 - go-wca v0.3.0 模块不含 `_example`（示例只在 GitHub 仓库）；离线开发以 `pkg/wca` 源码为准
 - （待补充）

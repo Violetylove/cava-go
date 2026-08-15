@@ -21,7 +21,7 @@ go build -ldflags "-X main.version=v1.0.0" -o cava.exe ./cmd/cava
 
 或直接运行：`go run ./cmd/cava`。
 
-**Linux 构建**需安装 PulseAudio 开发头文件：`sudo apt install libpulse-dev`（Windows 构建无需任何依赖）。
+**Linux 构建**需安装 PulseAudio 开发头文件：`sudo apt install libpulse-dev`（Windows 构建无需任何依赖）。**交叉编译**：Linux 版含 cgo，需在 Linux 环境编译（CI 的 `build-linux` job 在 ubuntu runner 原生构建）；Windows 版无 cgo，可任意交叉编译。
 
 首次运行会在 `%APPDATA%/cava-go/config.toml`（Linux 为 `~/.config/cava-go/config.toml`）自动生成**带注释的默认配置**。
 
