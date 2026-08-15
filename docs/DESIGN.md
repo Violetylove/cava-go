@@ -239,19 +239,16 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 - **尺寸变化检测**：Windows 无 SIGWINCH，监听 tcell 的 `EventResize`（底层轮询 console 尺寸），重算条柱数与布局；
 - **VT 能力检测**：Windows 10 1809+ ConHost / Windows Terminal 均支持；极旧 ConHost 报错或降级提示。
 
-### 6.4 配置系统（TOML，对齐 cava 配置节）
+### 6.4 配置系统（TOML）
 
-```
-[general]    fps, bars, autosens, sensitivity
-[input]      method=wasapi, sample_rate, channels, mono
-[dsp]        fft_size, window, min_freq, max_freq, bar_scale
-[smoothing]  falloff, smooth_bars
-[color]      gradient(色带定义), use_truecolor
-[visual]     type=spectrum, bar_width, bar_spacing
-[keys]       快捷键绑定
-```
+实际实现（2026-08-15 M4 落地）：
 
-- 支持 `--config <path>`、默认路径（如 `%APPDATA%/cava-go/config.toml`）、首次运行生成默认配置。
+- 文件：`%APPDATA%/cava-go/config.toml`，`--config <path>` 覆盖；**首次运行自动生成默认配置**；
+- 节：`[general]`（fps / bars / autosens / sensitivity）、`[dsp]`（fft_size / hop / min_freq / max_freq / target_peak）、`[smoothing]`（falloff / smooth_bars）、`[color]`（gradient_bottom / gradient_top，hex 双色渐变）、`[keys]`（quit / pause / sens_up / sens_down / reload）；
+- **快捷键**：q/Esc/Ctrl-C 退出、空格暂停（画面冻结）、`+`/`-` 灵敏度（`Pipeline.SetSensitivity`）、`r` 热重载；
+- **热重载（r）**：重读配置——结构性参数（bars / fft_size / hop / 频率范围）重建分析管线（`pipeMu` 换入新实例），其余（sensitivity / 渐变 / fps）热应用；
+- 校验：非法值（fps≤0、hop>fft_size、频率范围错误等）拒绝加载并给出可读报错；
+- 首期未实现：`[input]`（固定 wasapi）、`[visual]`（唯一 spectrum 柱状图）、`[keys]` 外的可视化切换（Tab）。
 
 ### 6.5 交互（P2）
 
@@ -278,4 +275,5 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 | 2026-08-15 | 帧率 60→120fps；DSP hop 1024→512（分析率 47→94/s）；渲染改**差异刷新**（去整屏 Clear） | 用户反馈：动画帧率可否再提高；此前瓶颈是 DSP 分析率低于渲染帧率 |
 | 2026-08-15 | falloff 改为**真实时间驱动**（§5.3）：Latest() 按流逝时间衰减，数据陈旧（2 个分析周期无新帧）判定为静音；时钟可注入便于测试 | 用户反馈：音频关闭后柱状不落回、下落残留浅色格子（根因：falloff 依赖音频数据驱动，流停止则定格） |
 | 2026-08-15 | 瞬时值**死区** `instFloor=0.03`（§5.5）：峰值保持逻辑不再把残余微值顶在柱顶（1px 暗淡微柱）；渲染层下落序列回归测试确认差异刷新擦除正确（非终端问题） | 用户反馈：下落时仍残留暗淡小格子；实测排除渲染层后定位到数据层微值顶柱 |
+| 2026-08-15 | **M4 落地**：TOML 配置系统（§6.4）、快捷键（空格暂停/+/-灵敏度/r热重载）、配置驱动与热重载；render 支持可变 FPS/SetGradient/按键上报；dsp 加 SetSensitivity | M4 里程碑（配置与交互） |
 

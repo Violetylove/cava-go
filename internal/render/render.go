@@ -1,9 +1,11 @@
 // Package render implements terminal output via tcell: block-glyph
-// spectrum drawing, fps pacing and quit handling. See docs/DESIGN.md §6.
+// spectrum drawing, fps pacing, key handling and quit. See docs/DESIGN.md §6.
 package render
 
 import (
 	"log"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -13,14 +15,40 @@ import (
 
 // Config configures the terminal renderer.
 type Config struct {
-	FPS int // target frames per second (default 60)
+	FPS            int    // target frames per second (default 60)
+	GradientBottom string // hex #RRGGBB (bar base), default "#0000A0"
+	GradientTop    string // hex #RRGGBB (bar tip), default "#00FFFF"
+
+	// Key bindings (single runes) reported via the Run actions channel.
+	KeyPause    rune
+	KeySensUp   rune
+	KeySensDown rune
+	KeyReload   rune
 }
+
+// KeyAction is a non-quit key press reported to the caller.
+type KeyAction int
+
+const (
+	// KeyPause toggles freezing the display (space).
+	KeyPause KeyAction = iota
+	// KeySensUp raises the sensitivity (+).
+	KeySensUp
+	// KeySensDown lowers the sensitivity (-).
+	KeySensDown
+	// KeyReload reloads the configuration (r).
+	KeyReload
+)
 
 // Renderer draws visualizations to the terminal via tcell.
 type Renderer struct {
 	screen    tcell.Screen
 	cfg       Config
 	maxMaxBar float32 // highest single-frame max bar seen (diagnostics)
+
+	mu       sync.Mutex
+	gradient []gradientStop
+	fps      atomic.Int32
 
 	// dirty-rect state: which cells were drawn last frame. Only changed
 	// cells are touched, so tcell's Show emits just the diffs instead of
@@ -34,6 +62,9 @@ type Renderer struct {
 func New(cfg Config) (*Renderer, error) {
 	if cfg.FPS <= 0 {
 		cfg.FPS = 60
+	}
+	if _, err := buildGradient(cfg.GradientBottom, cfg.GradientTop); err != nil {
+		return nil, err
 	}
 	s, err := tcell.NewScreen()
 	if err != nil {
@@ -50,9 +81,19 @@ func New(cfg Config) (*Renderer, error) {
 }
 
 // newWithScreen builds a renderer around an existing screen (used by tests
-// with a SimulationScreen).
+// with a SimulationScreen). Invalid gradient colors fall back to defaults.
 func newWithScreen(s tcell.Screen, cfg Config) *Renderer {
-	return &Renderer{screen: s, cfg: cfg}
+	if cfg.FPS <= 0 {
+		cfg.FPS = 60
+	}
+	r := &Renderer{screen: s, cfg: cfg}
+	g, err := buildGradient(cfg.GradientBottom, cfg.GradientTop)
+	if err != nil || g == nil {
+		g = defaultGradient
+	}
+	r.gradient = g
+	r.fps.Store(int32(cfg.FPS))
+	return r
 }
 
 // Fini restores the terminal and releases resources.
@@ -60,10 +101,31 @@ func (r *Renderer) Fini() {
 	r.screen.Fini()
 }
 
+// SetGradient updates the two-color gradient at runtime (hot reload).
+func (r *Renderer) SetGradient(bottom, top string) error {
+	g, err := buildGradient(bottom, top)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.gradient = g
+	r.mu.Unlock()
+	return nil
+}
+
+// SetFPS updates the target frame rate at runtime (hot reload).
+func (r *Renderer) SetFPS(fps int) {
+	if fps <= 0 {
+		fps = 60
+	}
+	r.fps.Store(int32(fps))
+}
+
 // Run drives the render loop until the stop channel is closed or the user
-// presses q / Esc / Ctrl-C. getBars is polled every tick for the newest
-// bar frame (returns nil when no data is available yet).
-func (r *Renderer) Run(getBars func() []float32, stop <-chan struct{}) {
+// presses the quit key. getBars is polled every tick for the newest bar
+// frame (return nil to freeze the current frame, e.g. when paused).
+// Non-quit key presses are sent to actions (may be nil).
+func (r *Renderer) Run(getBars func() []float32, actions chan<- KeyAction, stop <-chan struct{}) {
 	events := make(chan tcell.Event, 32)
 	go func() {
 		for {
@@ -71,15 +133,15 @@ func (r *Renderer) Run(getBars func() []float32, stop <-chan struct{}) {
 		}
 	}()
 
-	ticker := time.NewTicker(time.Second / time.Duration(r.cfg.FPS))
-	defer ticker.Stop()
+	timer := time.NewTimer(time.Second / time.Duration(r.fps.Load()))
+	defer timer.Stop()
 
 	start := time.Now()
 	frames := 0
 	var maxSum float32
 	for {
 		select {
-		case <-ticker.C:
+		case <-timer.C:
 			mb := r.draw(getBars())
 			if mb > r.maxMaxBar {
 				r.maxMaxBar = mb
@@ -87,12 +149,22 @@ func (r *Renderer) Run(getBars func() []float32, stop <-chan struct{}) {
 			maxSum += mb
 			r.screen.Show()
 			frames++
+			timer.Reset(time.Second / time.Duration(r.fps.Load()))
 		case ev := <-events:
 			if key, ok := ev.(*tcell.EventKey); ok {
-				if key.Key() == tcell.KeyEscape || key.Rune() == 'q' || key.Rune() == 'Q' ||
-					key.Key() == tcell.KeyCtrlC {
+				switch {
+				case key.Key() == tcell.KeyEscape || key.Rune() == 'q' || key.Rune() == 'Q' ||
+					key.Key() == tcell.KeyCtrlC:
 					r.report(frames, maxSum, start)
 					return
+				case key.Rune() == r.cfg.KeyPause:
+					sendAction(actions, KeyPause)
+				case key.Rune() == r.cfg.KeySensUp:
+					sendAction(actions, KeySensUp)
+				case key.Rune() == r.cfg.KeySensDown:
+					sendAction(actions, KeySensDown)
+				case key.Rune() == r.cfg.KeyReload:
+					sendAction(actions, KeyReload)
 				}
 			}
 			// EventResize and others: handled implicitly on the next draw
@@ -101,6 +173,16 @@ func (r *Renderer) Run(getBars func() []float32, stop <-chan struct{}) {
 			r.report(frames, maxSum, start)
 			return
 		}
+	}
+}
+
+func sendAction(actions chan<- KeyAction, a KeyAction) {
+	if actions == nil {
+		return
+	}
+	select {
+	case actions <- a:
+	default: // never block the render loop
 	}
 }
 
@@ -135,6 +217,9 @@ func (r *Renderer) draw(bars []float32) float32 {
 			maxBar = v
 		}
 	}
+	r.mu.Lock()
+	g := r.gradient
+	r.mu.Unlock()
 	for row := 0; row < height; row++ {
 		for col := 0; col < width; col++ {
 			idx := row*width + col
@@ -143,8 +228,8 @@ func (r *Renderer) draw(bars []float32) float32 {
 				// Foreground shades the filled half-block, background the
 				// other half — continuous two-tone gradient.
 				style := tcell.StyleDefault.
-					Foreground(gradientColor(cell.Fg)).
-					Background(gradientColor(cell.Bg))
+					Foreground(gradientColorAt(g, cell.Fg)).
+					Background(gradientColorAt(g, cell.Bg))
 				r.screen.SetContent(col, row, cell.Rune, nil, style)
 				r.prevDrawn[idx] = true
 			} else if r.prevDrawn[idx] {

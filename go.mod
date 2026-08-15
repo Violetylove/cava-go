@@ -9,6 +9,8 @@ require (
 	gonum.org/v1/gonum v0.17.0
 )
 
+require github.com/pelletier/go-toml/v2 v2.4.3
+
 require (
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect

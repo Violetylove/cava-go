@@ -179,6 +179,20 @@ func (p *Pipeline) Process(frame []float32) {
 // bar top at a dim 1px sliver (visible as "residue cells" while falling).
 const instFloor = 0.03
 
+// SetSensitivity updates the fixed sensitivity multiplier at runtime
+// (applied on top of the autosens gain). Used by the +/- hotkeys.
+func (p *Pipeline) SetSensitivity(s float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s <= 0 {
+		s = 0.1
+	}
+	p.cfg.Sensitivity = s
+	if !p.cfg.AutoSens {
+		p.gain = s
+	}
+}
+
 // Latest returns a copy of the most recent bar frame (0..1 per bar) with
 // time-driven falloff applied: each call decays the displayed bars by
 // Falloff * elapsed time, so they fall back even when the audio stream has

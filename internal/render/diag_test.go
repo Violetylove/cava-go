@@ -21,6 +21,9 @@ func TestGapColumnsEmpty(t *testing.T) {
 	s.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorLime))
 	s.Clear()
 
+	// Mirror the draw() loop using the renderer's gradient.
+	r := newWithScreen(s, Config{FPS: 60})
+
 	// Non-silent bars: every bar at full height.
 	bars := make([]float32, 51)
 	for i := range bars {
@@ -45,8 +48,8 @@ func TestGapColumnsEmpty(t *testing.T) {
 				continue
 			}
 			style := tcell.StyleDefault.
-				Foreground(gradientColor(cell.Fg)).
-				Background(gradientColor(cell.Bg))
+				Foreground(gradientColorAt(r.gradient, cell.Fg)).
+				Background(gradientColorAt(r.gradient, cell.Bg))
 			s.SetContent(col, row, cell.Rune, nil, style)
 		}
 	}
