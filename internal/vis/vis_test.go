@@ -3,18 +3,17 @@ package vis
 import "testing"
 
 func TestRenderSpectrumFullBar(t *testing.T) {
-	// One bar at full height over a 2-row grid: bottom row full blocks,
-	// top row has rounded corners (▜ █ ▟). Level runs 1 (top) to 0 (bottom).
+	// One bar at full height over a 2-row grid: every cell is a full block
+	// (flat top, cava-style). Level runs 1 (top) to 0 (bottom).
 	grid := RenderSpectrum([]float32{1.0}, 3, 2)
 	if len(grid) != 2 || len(grid[0]) != 3 {
 		t.Fatalf("unexpected grid size %dx%d", len(grid), len(grid[0]))
 	}
-	if grid[0][0].Rune != runeRoundUpLeft || grid[0][1].Rune != runeFull || grid[0][2].Rune != runeRoundUpRight {
-		t.Errorf("top row should be rounded corners, got %q %q %q", grid[0][0].Rune, grid[0][1].Rune, grid[0][2].Rune)
-	}
-	for _, c := range grid[1] {
-		if c.Rune != runeFull {
-			t.Errorf("bottom row should be full blocks, got %q", c.Rune)
+	for _, cells := range grid {
+		for _, c := range cells {
+			if c.Rune != runeFull {
+				t.Errorf("expected full blocks, got %q", c.Rune)
+			}
 		}
 	}
 	if grid[0][0].Level != 1 {
@@ -27,10 +26,10 @@ func TestRenderSpectrumFullBar(t *testing.T) {
 
 func TestRenderSpectrumHalfBar(t *testing.T) {
 	// Height 2 (4 half-blocks), bar at 0.5 → 2 half-blocks filled:
-	// bottom row full blocks with a rounded top (▜ █ ▟), top row empty.
+	// bottom row full blocks, top row empty.
 	grid := RenderSpectrum([]float32{0.5}, 3, 2)
-	if grid[1][0].Rune != runeRoundUpLeft || grid[1][2].Rune != runeRoundUpRight {
-		t.Errorf("bottom row should be rounded top, got %q ... %q", grid[1][0].Rune, grid[1][2].Rune)
+	if grid[1][0].Rune != runeFull {
+		t.Errorf("bottom row should be full, got %q", grid[1][0].Rune)
 	}
 	if grid[0][0].Rune != runeEmpty {
 		t.Errorf("top row should be empty, got %q", grid[0][0].Rune)
@@ -39,10 +38,10 @@ func TestRenderSpectrumHalfBar(t *testing.T) {
 
 func TestRenderSpectrumQuarterBar(t *testing.T) {
 	// Height 1 (2 half-blocks), bar at 0.25 → 0.5 half-block rounds to 1:
-	// a single lower half-block with rounded corners (▖ ▗) over 2 cols.
-	grid := RenderSpectrum([]float32{0.25}, 2, 1)
-	if grid[0][0].Rune != runeRoundLoLeft || grid[0][1].Rune != runeRoundLoRight {
-		t.Errorf("expected rounded lower corners, got %q %q", grid[0][0].Rune, grid[0][1].Rune)
+	// bottom half filled (▄), flat top.
+	grid := RenderSpectrum([]float32{0.25}, 1, 1)
+	if grid[0][0].Rune != runeBottom {
+		t.Errorf("expected bottom-half block, got %q", grid[0][0].Rune)
 	}
 }
 
@@ -72,24 +71,6 @@ func TestRenderSpectrumNarrow(t *testing.T) {
 	}
 	if grid[1][1].Rune != runeEmpty {
 		t.Errorf("gap column should be empty, got %q", grid[1][1].Rune)
-	}
-}
-
-func TestRenderSpectrumRoundedTop(t *testing.T) {
-	// Upper-half top: full-height bar (4 half-blocks) → top row corners ▜ ▟.
-	grid := RenderSpectrum([]float32{1.0}, 3, 2)
-	if grid[0][0].Rune != runeRoundUpLeft || grid[0][2].Rune != runeRoundUpRight {
-		t.Errorf("upper-half top corners: got %q %q, want %q %q", grid[0][0].Rune, grid[0][2].Rune, runeRoundUpLeft, runeRoundUpRight)
-	}
-	// Lower-half top: single-row bar (1 half-block) → corners ▖ ▗.
-	grid = RenderSpectrum([]float32{0.5}, 2, 1)
-	if grid[0][0].Rune != runeRoundLoLeft || grid[0][1].Rune != runeRoundLoRight {
-		t.Errorf("lower-half top corners: got %q %q, want %q %q", grid[0][0].Rune, grid[0][1].Rune, runeRoundLoLeft, runeRoundLoRight)
-	}
-	// Single-column bars stay flat (no rounding possible): full block top.
-	grid = RenderSpectrum([]float32{1.0}, 1, 2)
-	if grid[0][0].Rune != runeFull {
-		t.Errorf("1-col bar top should stay flat full block, got %q", grid[0][0].Rune)
 	}
 }
 

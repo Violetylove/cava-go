@@ -262,3 +262,4 @@ cava-go 是 Linux 终端音频可视化器 **cava** 的 **Windows 复刻**（Go 
 6. **Hann 窗相干增益≈0.5**（M2）：加窗后信号能量减半，须除以窗均值（`windowMean`）补偿，否则满幅正弦峰值只有 ~0.5。
 7. **RMS 导向的自动增益不够用**（M3）：受 crest factor 限制，RMS 增益只能把峰值提到 target×crest，对正弦仅 ~1.4 倍。改为**峰值导向**（gain=target/平滑峰值），数学上保证最高 bar ≈ target，直接解决“柱条太低”反馈（avg 0.17→0.50）。
 8. **验证音频素材会影响统计**（M3）：系统 Alarm 音效是间歇 beep，会拉低 avg max bar；验证“柱条高度”用 python 生成的连续音调 wav 更可靠。
+9. **终端做不出“真圆角”柱顶**（M3）：字符网格最小单元是直角四分之一块，挖角/收窄都只是台阶；cava 本身是平头，用户看到的“圆角”来自终端渲染层（如 kitty 的 `block_shape=rounded`），Windows Terminal 不支持。结论：平头方柱最兼容——在支持圆角化的终端下会自动圆角。已回退（`fix(vis)` 提交）。
