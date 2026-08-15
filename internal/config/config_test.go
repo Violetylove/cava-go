@@ -17,7 +17,7 @@ func TestDefault(t *testing.T) {
 	if c.Color.GradientBottom != "#0000A0" || c.Color.GradientTop != "#00FFFF" {
 		t.Errorf("unexpected color defaults: %+v", c.Color)
 	}
-	if c.Keys.Pause != " " || c.Keys.Quit != "q" {
+	if c.Keys.Pause != " " || c.Keys.Quit != "q" || c.Keys.SensUp != "=" || c.Keys.SensDown != "-" {
 		t.Errorf("unexpected key defaults: %+v", c.Keys)
 	}
 	if err := c.Validate(); err != nil {

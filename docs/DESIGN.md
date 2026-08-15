@@ -245,7 +245,7 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 
 - 文件：`%APPDATA%/cava-go/config.toml`，`--config <path>` 覆盖；**首次运行自动生成默认配置**；
 - 节：`[general]`（fps / bars / autosens / sensitivity）、`[dsp]`（fft_size / hop / min_freq / max_freq / target_peak）、`[smoothing]`（falloff / smooth_bars）、`[color]`（gradient_bottom / gradient_top，hex 双色渐变）、`[keys]`（quit / pause / sens_up / sens_down / reload）；
-- **快捷键**：q/Esc/Ctrl-C 退出、空格暂停（画面冻结）、`+`/`-` 灵敏度（`Pipeline.SetSensitivity`）、`r` 热重载；
+- **快捷键**：q/Esc/Ctrl-C 退出、空格暂停（画面冻结）、`=`/`-` 灵敏度（`=` 增大、`-` 减小，均无需 Shift；autosens 时调 TargetPeak，关闭时调 Sensitivity）、`r` 热重载；
 - **热重载（r）**：重读配置——结构性参数（bars / fft_size / hop / 频率范围）重建分析管线（`pipeMu` 换入新实例），其余（sensitivity / 渐变 / fps）热应用；
 - 校验：非法值（fps≤0、hop>fft_size、频率范围错误等）拒绝加载并给出可读报错；
 - 首期未实现：`[input]`（固定 wasapi）、`[visual]`（唯一 spectrum 柱状图）、`[keys]` 外的可视化切换（Tab）。

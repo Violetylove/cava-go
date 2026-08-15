@@ -64,7 +64,7 @@ func Default() Config {
 		DSP:     DSP{FFTSize: 2048, Hop: 512, MinFreq: 20, MaxFreq: 20000, TargetPeak: 0.8},
 		Smooth:  Smooth{Falloff: 3.0, SmoothBars: true},
 		Color:   Color{GradientBottom: "#0000A0", GradientTop: "#00FFFF"},
-		Keys:    Keys{Quit: "q", Pause: " ", SensUp: "+", SensDown: "-", Reload: "r"},
+		Keys:    Keys{Quit: "q", Pause: " ", SensUp: "=", SensDown: "-", Reload: "r"},
 	}
 }
 
