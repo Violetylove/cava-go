@@ -31,12 +31,13 @@ const (
 	runeFull   = '█' // both halves filled
 
 	// Rounded bar-top glyphs (1px corner radius), drawn on the row that
-	// contains the highest filled half-block:
-	//  - upper-half top: left corner lacks top-right quadrant (▜), right
-	//    corner lacks top-left quadrant (▟);
+	// contains the highest filled half-block. The missing quadrant points
+	// OUTWARD (away from the bar center) so the top corners look rounded:
+	//  - upper-half top: left corner lacks top-left quadrant (▟), right
+	//    corner lacks top-right quadrant (▜);
 	//  - lower-half top: left/lower-left (▖) and right/lower-right (▗).
-	runeRoundUpLeft  = '▜'
-	runeRoundUpRight = '▟'
+	runeRoundUpLeft  = '▟'
+	runeRoundUpRight = '▜'
 	runeRoundLoLeft  = '▖'
 	runeRoundLoRight = '▗'
 )
