@@ -93,7 +93,14 @@ func RenderSpectrum(bars []float32, width, height int) [][]Cell {
 		if v > 1 {
 			v = 1
 		}
-		half := int(math.Round(float64(v) * float64(height) * 2)) // filled half-blocks
+		// Dead zone: values below one half-block are dropped instead of
+		// rounding up to a 1px sliver — near-silence noise amplified by the
+		// autosens gain would otherwise draw a colored dot on every bar
+		// position while idle.
+		half := 0
+		if float64(v)*float64(height)*2 >= 1 {
+			half = int(math.Round(float64(v) * float64(height) * 2))
+		}
 
 		colStart := i * (barWidth + gap)
 		// Actual visible columns of this bar (clipped by the canvas width).

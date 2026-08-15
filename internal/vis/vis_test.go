@@ -37,11 +37,27 @@ func TestRenderSpectrumHalfBar(t *testing.T) {
 }
 
 func TestRenderSpectrumQuarterBar(t *testing.T) {
-	// Height 1 (2 half-blocks), bar at 0.25 → 0.5 half-block rounds to 1:
-	// bottom half filled (▄), flat top.
-	grid := RenderSpectrum([]float32{0.25}, 1, 1)
-	if grid[0][0].Rune != runeBottom {
-		t.Errorf("expected bottom-half block, got %q", grid[0][0].Rune)
+	// Height 2 (4 half-blocks), bar at 0.3 → 1.2 half-blocks rounds to 1:
+	// a single lower half-block (▄) on the bottom row.
+	grid := RenderSpectrum([]float32{0.3}, 2, 2)
+	if grid[1][0].Rune != runeBottom {
+		t.Errorf("expected bottom-half block, got %q", grid[1][0].Rune)
+	}
+	if grid[0][0].Rune != runeEmpty {
+		t.Errorf("top row should be empty, got %q", grid[0][0].Rune)
+	}
+}
+
+func TestRenderSpectrumDeadZone(t *testing.T) {
+	// Near-silence values (below one half-block) must draw nothing,
+	// otherwise autosens-amplified noise shows as 1px colored dots.
+	grid := RenderSpectrum([]float32{0.005}, 5, 30)
+	for _, row := range grid {
+		for _, c := range row {
+			if c.Fg >= 0 {
+				t.Fatalf("expected empty grid for dead-zone value, got rune %q", c.Rune)
+			}
+		}
 	}
 }
 

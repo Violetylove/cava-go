@@ -36,7 +36,9 @@ func New(cfg Config) (*Renderer, error) {
 	if err := s.Init(); err != nil {
 		return nil, err
 	}
-	s.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorLime).Background(tcell.ColorBlack))
+	// Keep the terminal's own background (no forced black): the theme's
+	// background color shows through in empty areas.
+	s.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorLime))
 	s.Clear()
 	return &Renderer{screen: s, cfg: cfg}, nil
 }
