@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/cmplx"
 	"sync"
+	"time"
 
 	"gonum.org/v1/gonum/dsp/fourier"
 )
@@ -84,9 +85,14 @@ type Pipeline struct {
 
 	binRanges [][2]int // [start, end) FFT bins per bar
 	mags      []float64
-	instBars  []float32 // instantaneous (gained) bars
-	prevBars  []float32 // previous smoothed frame, for falloff
-	latest    []float32
+	instBars  []float32 // instantaneous (gained+smooth) bars
+	latest    []float32 // displayed bars (with time-driven falloff)
+
+	// falloff is driven by real time in Latest(), so bars keep falling
+	// even when the audio stream stalls (no new Process calls).
+	lastData time.Time  // last Process call
+	lastTick time.Time  // last Latest call
+	now      func() time.Time // clock (injectable for tests)
 
 	// autosens state
 	smoothPeak float64
@@ -112,10 +118,10 @@ func New(cfg Config) (*Pipeline, error) {
 		binRanges:  make([][2]int, cfg.Bars),
 		mags:       make([]float64, cfg.FFTSize/2+1),
 		instBars:   make([]float32, cfg.Bars),
-		prevBars:   make([]float32, cfg.Bars),
 		latest:     make([]float32, cfg.Bars),
 		windowMean: windowMean(win),
 		gain:       cfg.Sensitivity,
+		now:        time.Now,
 	}
 	p.buildBinRanges()
 	return p, nil
@@ -155,6 +161,7 @@ func (p *Pipeline) Process(frame []float32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	p.lastData = p.now()
 	for _, v := range frame {
 		p.ring[p.ringPos] = v
 		p.ringPos = (p.ringPos + 1) % len(p.ring)
@@ -166,18 +173,49 @@ func (p *Pipeline) Process(frame []float32) {
 	}
 }
 
-// Latest returns a copy of the most recent bar frame (0..1 per bar).
+// Latest returns a copy of the most recent bar frame (0..1 per bar) with
+// time-driven falloff applied: each call decays the displayed bars by
+// Falloff * elapsed time, so they fall back even when the audio stream has
+// stopped feeding data (which would otherwise freeze the bars).
 func (p *Pipeline) Latest() []float32 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	now := p.now()
+	if p.lastTick.IsZero() {
+		p.lastTick = now
+	}
+	dt := now.Sub(p.lastTick).Seconds()
+	p.lastTick = now
+
+	// Data is stale when no PCM frame arrived for two analysis periods;
+	// treat the input as silence so bars decay to zero.
+	stale := !p.lastData.IsZero() &&
+		now.Sub(p.lastData).Seconds() > 2*float64(p.cfg.Hop)/p.cfg.SampleRate
+
+	decay := p.cfg.Falloff * dt
 	out := make([]float32, len(p.latest))
-	copy(out, p.latest)
+	for i := range p.latest {
+		inst := p.instBars[i]
+		if stale {
+			inst = 0
+		}
+		v := p.latest[i] - float32(decay)
+		if inst > v {
+			v = inst // classic peak-hold: rise instantly, decay slowly
+		}
+		if v < 0 {
+			v = 0
+		}
+		p.latest[i] = v
+		out[i] = v
+	}
 	return out
 }
 
 // analyze performs one FFT on the most recent FFTSize samples and updates
-// latest through the chain: raw -> gain (autosens) -> falloff -> smooth.
-// Caller must hold p.mu.
+// instBars through the chain: raw -> gain (autosens) -> smooth. Falloff is
+// applied by Latest on the displayed bars. Caller must hold p.mu.
 func (p *Pipeline) analyze() {
 	// Reconstruct the most recent FFTSize samples in chronological order
 	// from the ring buffer, apply the window.
@@ -221,21 +259,10 @@ func (p *Pipeline) analyze() {
 		p.instBars[b] = v
 	}
 
-	// 3) falloff: bars fall toward zero at a fixed rate unless the
-	// instantaneous value is higher (classic peak-hold decay).
-	decay := p.cfg.Falloff * (float64(p.cfg.Hop) / p.cfg.SampleRate)
-	for b := range p.instBars {
-		p.latest[b] = p.instBars[b]
-		if p.prevBars[b]-float32(decay) > p.latest[b] {
-			p.latest[b] = p.prevBars[b] - float32(decay)
-		}
-	}
-
-	// 4) neighbor smoothing
+	// 3) neighbor smoothing on the instantaneous bars
 	if p.cfg.SmoothBars {
-		copy(p.latest, applySmooth(p.latest))
+		copy(p.instBars, applySmooth(p.instBars))
 	}
-	copy(p.prevBars, p.latest)
 }
 
 // applySmooth convolves bars with a [0.25 0.5 0.25] kernel; out-of-range

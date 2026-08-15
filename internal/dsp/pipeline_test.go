@@ -3,6 +3,7 @@ package dsp
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func TestHannWindow(t *testing.T) {
@@ -163,33 +164,59 @@ func TestAutoSensAttack(t *testing.T) {
 }
 
 func TestFalloffDecay(t *testing.T) {
-	// After the signal stops, bars must decay toward zero at
-	// Falloff * (hop/sampleRate) per analysis frame.
+	// Bars must decay by Falloff * elapsed time per Latest() call even
+	// without new audio data (time-driven, not analysis-driven).
 	p, err := New(Config{SampleRate: 48000, AutoSens: false, SmoothBars: false, Falloff: 2.0})
 	if err != nil {
 		t.Fatal(err)
 	}
-	feedSine(p, 0.8, 60)
+	fake := time.Now()
+	p.now = func() time.Time { return fake }
+	feedSine(p, 1.0, 60)
+	p.Latest() // initialize lastTick
 	peak0 := maxBar(p.Latest())
-	if peak0 < 0.05 {
+	if peak0 < 0.1 {
 		t.Fatalf("expected measurable peak, got %v", peak0)
 	}
-	decay := 2.0 * (1024.0 / 48000.0) // per analysis frame
-	silence := make([]float32, 1024)  // exactly one hop -> one analysis
+
 	prev := peak0
-	for i := 0; i < 8; i++ {
-		p.Process(silence)
+	for i := 0; i < 5; i++ {
+		fake = fake.Add(50 * time.Millisecond)
 		cur := maxBar(p.Latest())
 		diff := float64(prev - cur)
 		if cur > prev+1e-6 {
 			t.Fatalf("bars must not rise during silence: %v -> %v", prev, cur)
 		}
-		// After 2 hops the ring buffer is fully silent, so the decay must
-		// be exactly Falloff*(hop/sampleRate) per analysis frame.
-		if i >= 2 && cur > 0.001 && (diff < decay*0.8 || diff > decay*1.2) {
-			t.Fatalf("decay per frame = %v, want ~%v (prev=%v cur=%v)", diff, decay, prev, cur)
+		// 2.0/s * 0.05s = 0.1 per step (skip the frame that hits zero).
+		if cur > 0.001 && (diff < 0.08 || diff > 0.12) {
+			t.Fatalf("decay per 50ms = %v, want ~0.1 (prev=%v cur=%v)", diff, prev, cur)
 		}
 		prev = cur
+	}
+}
+
+func TestFalloffTimeDriven(t *testing.T) {
+	// When the audio stream stops feeding data entirely, bars must still
+	// fall back to zero (previously the analysis-driven falloff froze).
+	p, err := New(Config{SampleRate: 48000, AutoSens: false, SmoothBars: false, Falloff: 3.0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := time.Now()
+	p.now = func() time.Time { return fake }
+	feedSine(p, 0.9, 60)
+	p.Latest()
+	peak0 := maxBar(p.Latest())
+	if peak0 < 0.1 {
+		t.Fatalf("expected a peak, got %v", peak0)
+	}
+	// Stop feeding data; advance one second in small steps.
+	for i := 0; i < 20; i++ {
+		fake = fake.Add(50 * time.Millisecond)
+		p.Latest()
+	}
+	if got := maxBar(p.Latest()); got > 0.01 {
+		t.Errorf("bars must fall back to zero after audio stops, got %v", got)
 	}
 }
 
