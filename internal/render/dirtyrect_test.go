@@ -6,6 +6,40 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
+// TestFallSequenceNoResidue drives bars down from full to zero over many
+// frames and verifies the screen ends completely clean (no stale cells
+// left behind by the dirty-rect renderer).
+func TestFallSequenceNoResidue(t *testing.T) {
+	s := tcell.NewSimulationScreen("utf8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(40, 10)
+	s.SetStyle(tcell.StyleDefault.Foreground(tcell.ColorLime))
+
+	r := newWithScreen(s, Config{FPS: 60})
+	for i := 10; i >= 0; i-- {
+		bars := make([]float32, 5)
+		for j := range bars {
+			bars[j] = float32(i) / 10
+		}
+		r.draw(bars)
+		s.Show()
+	}
+
+	contents, _, _ := s.GetContents()
+	for i, c := range contents {
+		if string(c.Bytes) != " " {
+			t.Errorf("residue after fall: cell %d has %q", i, c.Bytes)
+		}
+		_, bg, _ := c.Style.Decompose()
+		if bg != tcell.ColorDefault {
+			t.Errorf("residue after fall: cell %d is space but bg=%v", i, bg)
+		}
+	}
+}
+
 // TestDirtyRectErase verifies that cells drawn in one frame are erased when
 // the next frame is empty (dirty-rect rendering must not leave residue).
 func TestDirtyRectErase(t *testing.T) {

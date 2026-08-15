@@ -173,6 +173,12 @@ func (p *Pipeline) Process(frame []float32) {
 	}
 }
 
+// instFloor drops instantaneous bar values below this threshold to zero.
+// Near-silence residual amplified by the autosens gain lands in this band;
+// without the floor, the peak-hold logic in Latest() would pin a falling
+// bar top at a dim 1px sliver (visible as "residue cells" while falling).
+const instFloor = 0.03
+
 // Latest returns a copy of the most recent bar frame (0..1 per bar) with
 // time-driven falloff applied: each call decays the displayed bars by
 // Falloff * elapsed time, so they fall back even when the audio stream has
@@ -197,7 +203,7 @@ func (p *Pipeline) Latest() []float32 {
 	out := make([]float32, len(p.latest))
 	for i := range p.latest {
 		inst := p.instBars[i]
-		if stale {
+		if stale || inst < instFloor {
 			inst = 0
 		}
 		v := p.latest[i] - float32(decay)

@@ -195,6 +195,20 @@ func TestFalloffDecay(t *testing.T) {
 	}
 }
 
+func TestInstDeadZoneQuiet(t *testing.T) {
+	// Very weak input must produce zero bars: residual near-silence scaled
+	// by autosens gain would otherwise pin falling bar tops at dim 1px
+	// slivers (the "residue cells" seen while falling).
+	p, err := New(Config{SampleRate: 48000, AutoSens: true, SmoothBars: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	feedSine(p, 0.005, 120) // raw peak ~0.001; autosens x15 stays below floor
+	if got := maxBar(p.Latest()); got != 0 {
+		t.Errorf("quiet signal should produce zero bars, got %v", got)
+	}
+}
+
 func TestFalloffTimeDriven(t *testing.T) {
 	// When the audio stream stops feeding data entirely, bars must still
 	// fall back to zero (previously the analysis-driven falloff froze).
