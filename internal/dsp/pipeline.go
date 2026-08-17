@@ -179,6 +179,15 @@ func (p *Pipeline) Process(frame []float32) {
 // bar top at a dim 1px sliver (visible as "residue cells" while falling).
 const instFloor = 0.03
 
+// staleDataTimeout is how long without fresh PCM input before the input is
+// treated as silence. WASAPI feeds data continuously, but PulseAudio
+// delivers record data in bursts (tens of ms apart); the theoretical
+// two-analysis-period bound (2*hop/sampleRate ≈ 21ms) would falsely mark
+// those burst gaps as silence and zero the bars. 200ms covers realistic
+// burst gaps while still decaying the bars promptly after the stream
+// truly stops.
+const staleDataTimeout = 200 * time.Millisecond
+
 // SetSensitivity updates the fixed sensitivity multiplier at runtime
 // (applied on top of the autosens gain). Used by the +/- hotkeys.
 func (p *Pipeline) SetSensitivity(s float64) {
@@ -208,10 +217,9 @@ func (p *Pipeline) Latest() []float32 {
 	dt := now.Sub(p.lastTick).Seconds()
 	p.lastTick = now
 
-	// Data is stale when no PCM frame arrived for two analysis periods;
-	// treat the input as silence so bars decay to zero.
-	stale := !p.lastData.IsZero() &&
-		now.Sub(p.lastData).Seconds() > 2*float64(p.cfg.Hop)/p.cfg.SampleRate
+	// Data is stale when no PCM frame arrived for a while; treat the
+	// input as silence so bars decay to zero.
+	stale := !p.lastData.IsZero() && now.Sub(p.lastData) > staleDataTimeout
 
 	decay := p.cfg.Falloff * dt
 	out := make([]float32, len(p.latest))

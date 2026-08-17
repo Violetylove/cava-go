@@ -2,51 +2,55 @@
 
 package audio
 
-/*
-#cgo LDFLAGS: -lpulse-simple -lpulse
-#include <stdlib.h>
-#include <pulse/simple.h>
-#include <pulse/error.h>
-*/
-import "C"
-
-import (
-	"fmt"
-	"sync"
-	"unsafe"
-)
-
 // PulseSource is an AudioSource that captures the system audio output on
 // Linux via PulseAudio: it records from the default output monitor
 // ("@DEFAULT_MONITOR@", i.e. whatever the default sink is playing).
 //
+// The native protocol client in pulse_proto.go is a pure-Go implementation
+// (no cgo), so the Linux build cross-compiles with CGO_ENABLED=0.
+//
 // The sample format is requested as float32le / 48 kHz / 2 channels;
 // PulseAudio performs the resampling and conversion, so the stream is
 // handled by the shared convertFrame mono-mix.
-type PulseSource struct {
-	mu      sync.Mutex
-	started bool
 
-	stop   chan struct{}
-	done   chan struct{}
-	frames chan []float32
+import (
+	"fmt"
+	"net"
+	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
-	simple     *C.pa_simple
-	sampleRate int
-	closeErr   error
-}
-
-const (
-	pulseSampleRate = 48000
-	pulseChannels   = 2
-	// framesPerPacket is read per loop iteration (~10 ms of audio), so the
-	// loop can poll the stop channel instead of blocking forever.
-	framesPerPacket = 480
+	"golang.org/x/sys/unix"
 )
+
+const pulseChannels = 2
+
+// framesPerPacket is the size of each frame delivered on the frames
+// channel (~10 ms of audio at 48 kHz). The server sends record data in
+// large bursts, so incoming blocks are sliced into these packets: this
+// keeps Process() calls frequent enough for the DSP pipeline's
+// staleness detection (staleDataTimeout) and matches the old pa_simple
+// loop.
+const framesPerPacket = 480
 
 // NewPulseSource returns a new PulseAudio monitor source.
 func NewPulseSource() *PulseSource {
 	return &PulseSource{}
+}
+
+// PulseSource implements AudioSource on Linux.
+type PulseSource struct {
+	mu      sync.Mutex
+	started bool
+
+	conn     net.Conn
+	frames   chan []float32
+	done     chan struct{}
+	stopping atomic.Bool
+
+	closeErr error
 }
 
 // Start begins capturing the default output monitor.
@@ -56,10 +60,10 @@ func (s *PulseSource) Start() (<-chan []float32, error) {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("capture already started")
 	}
-	s.stop = make(chan struct{})
-	s.done = make(chan struct{})
 	s.frames = make(chan []float32, 4)
+	s.done = make(chan struct{})
 	s.started = true
+	s.stopping.Store(false)
 	s.mu.Unlock()
 
 	ready := make(chan error, 1)
@@ -71,16 +75,15 @@ func (s *PulseSource) Start() (<-chan []float32, error) {
 	return s.frames, nil
 }
 
-// Close stops capture and releases the PulseAudio connection. Safe to call
-// multiple times.
+// Close stops capture and closes the connection. Safe to call multiple
+// times.
 func (s *PulseSource) Close() error {
 	s.mu.Lock()
 	started := s.started
 	if started {
-		select {
-		case <-s.stop:
-		default:
-			close(s.stop)
+		s.stopping.Store(true)
+		if s.conn != nil {
+			s.conn.Close()
 		}
 	}
 	s.mu.Unlock()
@@ -100,11 +103,12 @@ func (s *PulseSource) SampleRate() int {
 	return pulseSampleRate
 }
 
-// run opens the PulseAudio record stream and pumps PCM packets. All
-// pa_simple calls happen on this goroutine (pa_simple is not safe for
-// concurrent use).
+// run drives the capture lifecycle on one goroutine.
 func (s *PulseSource) run(ready chan<- error) {
 	err := s.captureLoop(ready)
+	if err != nil && s.stopping.Load() {
+		err = nil // closed by us: not an error
+	}
 	s.mu.Lock()
 	s.closeErr = err
 	s.started = false
@@ -113,57 +117,151 @@ func (s *PulseSource) run(ready chan<- error) {
 	close(s.done)
 }
 
+// captureLoop dials, handshakes and pumps audio frames until the
+// connection fails or Close is called.
 func (s *PulseSource) captureLoop(ready chan<- error) error {
-	defer func() {
-		if s.simple != nil {
-			C.pa_simple_free(s.simple)
-			s.simple = nil
-		}
-	}()
-
-	var ss C.pa_sample_spec
-	ss.format = C.PA_SAMPLE_FLOAT32LE
-	ss.rate = C.uint32_t(pulseSampleRate)
-	ss.channels = C.uint8_t(pulseChannels)
-
-	dev := C.CString("@DEFAULT_MONITOR@")
-	name := C.CString("cava-go")
-	stream := C.CString("cava-go capture")
-	defer C.free(unsafe.Pointer(dev))
-	defer C.free(unsafe.Pointer(name))
-	defer C.free(unsafe.Pointer(stream))
-
-	var cerr C.int
-	s.simple = C.pa_simple_new(
-		nil, name, C.PA_STREAM_RECORD, dev, stream,
-		&ss, nil, nil, &cerr)
-	if s.simple == nil {
-		ready <- fmt.Errorf("pulseaudio: %s", C.GoString(C.pa_strerror(cerr)))
+	conn, err := dialPulseServer()
+	if err != nil {
+		ready <- err
 		return nil
 	}
+	s.conn = conn
+	defer conn.Close()
 
-	s.sampleRate = pulseSampleRate
+	r, err := handshake(conn, "cava-go", pulseCookie(), unixCredsSender(conn))
+	if err != nil {
+		ready <- err
+		return nil
+	}
 	ready <- nil
 
-	// Read ~10 ms packets; the read blocks until full, so stop is polled
-	// between packets.
-	bytesPerPacket := framesPerPacket * pulseChannels * 4 // float32
-	buf := make([]byte, bytesPerPacket)
-	mono := make([]float32, framesPerPacket)
+	var pending []float32 // leftover mono samples across data blocks
 	for {
-		select {
-		case <-s.stop:
-			return nil
-		default:
+		f, err := readFrame(r)
+		if err != nil {
+			return fmt.Errorf("pulse: read: %w", err)
 		}
-		n := C.pa_simple_read(s.simple, unsafe.Pointer(&buf[0]), C.size_t(len(buf)), &cerr)
-		if n < 0 {
-			return fmt.Errorf("pulseaudio read: %s", C.GoString(C.pa_strerror(cerr)))
+		if f.channel == channelControl {
+			if err := handleControl(f); err != nil {
+				return err
+			}
+			continue
 		}
-		convertFrame(mono, &buf[0], pulseChannels, formatFloat32)
-		select {
-		case s.frames <- mono:
-		default: // drop frame, keep the pipeline real-time
+		// Audio data: interleaved float32le stereo, one frame per sample.
+		n := len(f.payload) / (pulseChannels * 4)
+		if n == 0 {
+			continue
 		}
+		mono := make([]float32, n)
+		convertFrame(mono, &f.payload[0], pulseChannels, formatFloat32)
+		pending = append(pending, mono...)
+		for len(pending) >= framesPerPacket {
+			frame := make([]float32, framesPerPacket)
+			copy(frame, pending[:framesPerPacket])
+			pending = pending[framesPerPacket:]
+			select {
+			case s.frames <- frame:
+			default: // drop frame, keep the pipeline real-time
+			}
+		}
+	}
+}
+
+// handleControl processes one control packet received after the stream is
+// up. Replies and asynchronous server events are ignored; only an explicit
+// error terminates the capture.
+func handleControl(f paFrame) error {
+	rr := &tagReader{data: f.payload}
+	cmd, err := rr.u32()
+	if err != nil {
+		return fmt.Errorf("pulse: malformed control message: %w", err)
+	}
+	switch cmd {
+	case paCmdReply:
+		return nil
+	case paCmdError:
+		if _, err := rr.u32(); err != nil { // tag
+			return fmt.Errorf("pulse: malformed error packet: %w", err)
+		}
+		code, _ := rr.u32()
+		return fmt.Errorf("pulse: server error %d", code)
+	default:
+		// Asynchronous server event (started/suspended/moved/...); the
+		// stream keeps running, so just ignore it.
+		return nil
+	}
+}
+
+// dialPulseServer connects to PULSE_SERVER (a list is tried in order) or
+// the default socket list.
+func dialPulseServer() (net.Conn, error) {
+	if env := os.Getenv("PULSE_SERVER"); env != "" {
+		addrs := strings.FieldsFunc(env, func(r rune) bool {
+			return r == ' ' || r == ';' || r == ','
+		})
+		if len(addrs) > 0 {
+			var errs []string
+			for _, a := range addrs {
+				conn, err := dial(a)
+				if err == nil {
+					return conn, nil
+				}
+				errs = append(errs, fmt.Sprintf("%s: %v", a, err))
+			}
+			return nil, fmt.Errorf("pulse: no usable server from PULSE_SERVER (%s)", strings.Join(errs, "; "))
+		}
+	}
+	var errs []string
+	for _, cand := range pulseServerCandidates() {
+		conn, err := dial(cand)
+		if err == nil {
+			return conn, nil
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", cand, err))
+	}
+	return nil, fmt.Errorf("pulse: no usable server socket (%s)", strings.Join(errs, "; "))
+}
+
+// dial opens one connection to a server address.
+func dial(server string) (net.Conn, error) {
+	network, addr := parsePulseServer(server)
+	return net.DialTimeout(network, addr, 5*time.Second)
+}
+
+// unixCredsSender returns a writer for the first command packet that
+// attaches SCM_CREDENTIALS on unix sockets, mirroring libpulse: the
+// server authenticates the peer by uid instead of the auth cookie. It
+// returns nil for non-unix connections (TCP relies on auth-anonymous or
+// the cookie).
+func unixCredsSender(conn net.Conn) func(payload []byte) error {
+	uc, ok := conn.(*net.UnixConn)
+	if !ok {
+		return nil
+	}
+	return func(payload []byte) error {
+		raw, err := uc.SyscallConn()
+		if err != nil {
+			return err
+		}
+		var oob []byte
+		var ctlErr error
+		if err := raw.Control(func(fd uintptr) {
+			if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PASSCRED, 1); err != nil {
+				ctlErr = err
+				return
+			}
+			oob = unix.UnixCredentials(&unix.Ucred{
+				Pid: int32(unix.Getpid()),
+				Uid: uint32(os.Getuid()),
+				Gid: uint32(os.Getgid()),
+			})
+		}); err != nil {
+			return err
+		}
+		if ctlErr != nil {
+			return ctlErr
+		}
+		_, _, err = uc.WriteMsgUnix(payload, oob, nil)
+		return err
 	}
 }

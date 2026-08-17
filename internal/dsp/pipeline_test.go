@@ -164,8 +164,9 @@ func TestAutoSensAttack(t *testing.T) {
 }
 
 func TestFalloffDecay(t *testing.T) {
-	// Bars must decay by Falloff * elapsed time per Latest() call even
-	// without new audio data (time-driven, not analysis-driven).
+	// Bars must decay by Falloff * elapsed time per Latest() call once the
+	// input is stale (no audio data beyond staleDataTimeout), driven by
+	// real time — not by analysis.
 	p, err := New(Config{SampleRate: 48000, AutoSens: false, SmoothBars: false, Falloff: 2.0})
 	if err != nil {
 		t.Fatal(err)
@@ -180,18 +181,46 @@ func TestFalloffDecay(t *testing.T) {
 	}
 
 	prev := peak0
-	for i := 0; i < 5; i++ {
-		fake = fake.Add(50 * time.Millisecond)
+	for i := 0; i < 4; i++ {
+		fake = fake.Add(250 * time.Millisecond)
 		cur := maxBar(p.Latest())
 		diff := float64(prev - cur)
 		if cur > prev+1e-6 {
 			t.Fatalf("bars must not rise during silence: %v -> %v", prev, cur)
 		}
-		// 2.0/s * 0.05s = 0.1 per step (skip the frame that hits zero).
-		if cur > 0.001 && (diff < 0.08 || diff > 0.12) {
-			t.Fatalf("decay per 50ms = %v, want ~0.1 (prev=%v cur=%v)", diff, prev, cur)
+		// 2.0/s * 0.25s = 0.5 per step (skip the frame that hits zero).
+		if cur > 0.001 && (diff < 0.4 || diff > 0.6) {
+			t.Fatalf("decay per 250ms = %v, want ~0.5 (prev=%v cur=%v)", diff, prev, cur)
 		}
 		prev = cur
+	}
+}
+
+func TestBurstGapKeepsBars(t *testing.T) {
+	// PulseAudio delivers record data in bursts; a short gap between
+	// bursts (100ms) must not be treated as silence — the peak-hold keeps
+	// the bars up — while a gap beyond staleDataTimeout starts the decay.
+	p, err := New(Config{SampleRate: 48000, AutoSens: false, SmoothBars: false, Falloff: 3.0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := time.Now()
+	p.now = func() time.Time { return fake }
+	feedSine(p, 0.9, 60)
+	p.Latest()
+	peak0 := maxBar(p.Latest())
+	if peak0 < 0.1 {
+		t.Fatalf("expected a peak, got %v", peak0)
+	}
+
+	fake = fake.Add(100 * time.Millisecond)
+	if got := maxBar(p.Latest()); got < peak0*0.9 {
+		t.Fatalf("100ms burst gap must hold bars near the peak (peak=%v got=%v)", peak0, got)
+	}
+
+	fake = fake.Add(300 * time.Millisecond) // now past staleDataTimeout
+	if got := maxBar(p.Latest()); got >= peak0 {
+		t.Fatalf("bars must start decaying after a stale gap (peak=%v got=%v)", peak0, got)
 	}
 }
 

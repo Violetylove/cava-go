@@ -99,7 +99,7 @@ cava 是 Linux 下经典的终端音频可视化器（C 语言编写）：
 | 层 | 库 | 备注 |
 |---|---|---|
 | 捕获（Windows） | `moutend/go-wca` | loopback + 事件驱动，官方示例直接当模板 |
-| 捕获（Linux） | **libpulse-dev（cgo，仅 Linux）** | `pa_simple` 记录默认输出 monitor（§4.6），请求 float32/48k/2ch 由 PulseAudio 重采样 |
+| 捕获（Linux） | **纯 Go native protocol（无 cgo）** | 自写 PulseAudio native protocol 客户端（protocol ≥ 34），记录默认输出 monitor（`@DEFAULT_MONITOR@`），请求 float32/48k/2ch 由 PulseAudio 重采样 |
 | 处理 | `gonum.org/v1/gonum/dsp/fourier` | 实数 FFT（`dsp/window` 提供窗函数） |
 | 渲染 | `gdamore/tcell/v2` | 真彩色、脏矩形刷新、Windows 支持 |
 | 配置 | `pelletier/go-toml/v2` | TOML 解析 |
@@ -169,15 +169,16 @@ Windows 上捕获"系统正在播放的音频"的标准途径是 **WASAPI loopba
 - **无播放音频**：loopback 流依然产生静音数据，能量检测保证画面归零而非闪烁噪声；
 - **独占模式冲突**：若其他程序占用了独占模式，共享模式 loopback 会失败——捕获错误并给出可读提示。
 
-### 4.6 Linux 捕获（PulseAudio，2026-08-16 新增）
+### 4.6 Linux 捕获（PulseAudio，纯 Go）
 
-- 实现：`internal/audio/pulse_linux.go`（build tag `linux`，cgo + libpulse-dev 的 `pa_simple` API）；
-- 捕获源：**默认输出的 monitor**（`@DEFAULT_MONITOR@`，即默认 sink 的 .monitor），等价于"系统输出"；无需声卡虚拟设备；
-- **格式协商**：请求 `float32le / 48000Hz / 2ch`，由 PulseAudio 自动重采样/转换，管线直接复用共享 `convertFrame` 混单声道；
-- 读取循环：每次读 10ms 包（阻塞），包间轮询 stop 通道实现优雅退出；`pa_simple` 调用全部收敛在单 goroutine（非线程安全）；
+- 实现：`internal/audio/pulse_proto.go`（协议层，平台无关）+ `internal/audio/pulse_linux.go`（PulseSource，build tag `linux`）；
+- **零 cgo、零外部依赖**：自写 PulseAudio **native protocol**（协议版本 ≥ 34，即 PA 14.0+）客户端——`pstream` 20 字节大端帧头、TLV 编码 tagstruct、`AUTH → SET_CLIENT_NAME → CREATE_RECORD_STREAM` 三段握手；老版本（PA ≤ 13）命令表与编码不同，不支持并报错提示；
+- 捕获源：**默认输出的 monitor**（`@DEFAULT_MONITOR@`）；**格式协商**：请求 `float32le / 48000Hz / 2ch`，由 PulseAudio 自动重采样/转换，管线直接复用共享 `convertFrame` 混单声道；
+- **认证**：unix socket 首条消息（AUTH）附 `SCM_CREDENTIALS`（uid 校验，模拟 libpulse）；无凭据场景（TCP）依赖 `auth-anonymous` 或 cookie（读 `~/.config/pulse/cookie`，缺省全 0）；
+- **数据节奏**：服务端 record 数据按大块突发到达，读取循环按 **10ms（480 帧）切片**投递（模拟旧 `pa_simple` 轮询节奏），避免 DSP 的陈旧判定误触发（见 §5.3）；
+- **服务器解析**：`PULSE_SERVER` 环境变量（`unix:`/`tcp:`/裸路径）优先，否则按 libpulse 顺序尝试 `$XDG_RUNTIME_DIR/pulse/native`、`/run/user/<uid>/pulse/native`、`~/.pulse/native`、`/var/run/pulse/native`；
 - 工厂：`internal/audio/source_linux.go` 的 `NewSource()` 返回 `PulseSource`（Windows 对应 `NewWasapiSource`）；
-- **构建依赖**：Linux 构建需 `libpulse-dev`（`apt install libpulse-dev`）；Windows 构建不受影响（build tag 隔离，保持无 cgo）；
-- **交叉编译约束**：Linux 后端含 cgo，**Linux 版只能在 Linux 环境编译**（本机用 WSL、CI 用 ubuntu runner 原生构建）；Windows 版无 cgo，任意平台可交叉编译；
+- **交叉编译**：无 cgo，任意平台 `CGO_ENABLED=0 GOOS=linux` 直接产出静态 ELF（CI 的 `build-linux` job 原生构建验证 + Windows runner 亦可交叉验证）；
 - 已知差异：PulseAudio monitor 在无播放时**不产生数据**（与 WASAPI 静音填充不同），静音判定由 dsp 的数据陈旧检测兜底。
 
 ---
@@ -206,7 +207,7 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 
 ### 5.3 平滑
 
-- **时间平滑（falloff）**：bar 下降时按**真实时间**线性衰减（`falloff` 系数=每秒衰减率，默认 3/s，0=关），上升跟随瞬时值，产生"峰值回落"经典观感；由渲染侧 `Latest()` 驱动（含时钟注入以便测试），**音频流停止/挂起时柱状依然按时间落回**（旧实现依赖音频数据持续触发 FFT 分析，流停则柱状定格）；
+- **时间平滑（falloff）**：bar 下降时按**真实时间**线性衰减（`falloff` 系数=每秒衰减率，默认 3/s，0=关），上升跟随瞬时值，产生"峰值回落"经典观感；由渲染侧 `Latest()` 驱动（含时钟注入以便测试），**音频流停止/挂起时柱状依然按时间落回**（旧实现依赖音频数据持续触发 FFT 分析，流停则柱状定格）；数据陈旧判定阈值 `staleDataTimeout=200ms`（WASAPI 数据连续；PulseAudio record 数据按块突发到达，2 个分析周期 ≈21ms 的旧阈值会把块间静默误判为静音，故放宽）；
 - **空间平滑（smooth-bars）**：相邻 bar 加权平均（如 `[0.25, 0.5, 0.25]` 卷积），消除锯齿；
 - 两者都开关可配、强度可配。
 
@@ -292,4 +293,5 @@ PCM帧(float32[]) → 分帧 → 加窗(Hann) → 实数FFT → 幅度谱
 | 2026-08-15 | **修复：运行期禁止 stderr 日志**（M4 bug）——log 与 tcell 画面共用终端，按键提示文本会污染屏幕且差异刷新不修复被覆盖区域（表现为残留+日志混乱） | 用户反馈：按 +/- 后界面残留、日志打印在画面上 |
 | 2026-08-15 | **M5 完成（v1.0.0）**：启动失败中文可读报错、benchmark 性能验证（DSP ≈0.45% 单核 / 渲染 ≈0.3%）、`-version` 版本注入、README 发布 | M5 里程碑（打磨发布） |
 | 2026-08-16 | **Linux 后端**（§4.6）：PulseAudio monitor 捕获（`pulse_linux.go`，cgo `pa_simple`，`@DEFAULT_MONITOR@`），工厂 `NewSource()` 按平台选择；go.mod go 1.26.5→1.26（放宽工具链）；CI 增加 Linux 构建验证 job | 跨平台改造（用户决策）——WSL2 端到端验证：105fps、peak 0.64（440Hz 正弦） |
+| 2026-08-17 | **Linux 后端去 cgo**（§4.6）：自写纯 Go native protocol 客户端（`pulse_proto.go`，protocol ≥ 34，TLV tagstruct + SCM_CREDENTIALS 认证 + 10ms 数据切片投递），删除 libpulse-dev 依赖；**任意平台 `CGO_ENABLED=0` 交叉编译**；stale 阈值 2×hop→200ms（`staleDataTimeout`，适配 PulseAudio 突发数据）；新增协议层单测 + mock server 端到端测试 | 用户决策：禁用 cgo 实现交叉编译——WSL2 端到端验证：107.8fps、peak 0.72（440Hz 正弦，与 cgo 版同量级） |
 

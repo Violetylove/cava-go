@@ -31,6 +31,10 @@ jobs:
           go vet ./...
           go test ./...
 
+      - name: Cross-compile linux (CGO_ENABLED=0, no cgo)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o cava-linux-cross ./cmd/cava
+
       - name: Build (windows/amd64)
         run: |
           go build -trimpath `
@@ -44,8 +48,10 @@ jobs:
           files: cava.exe
           generate_release_notes: true
 
-  # Cross-platform guard: verify the Linux backend (PulseAudio) keeps
-  # building and its unit tests stay green. Attaches the Linux binary too.
+  # Cross-platform guard: the Linux backend is pure Go (no cgo, no
+  # libpulse), so this job verifies vet/tests on linux natively and
+  # attaches the Linux binary. Windows job above additionally proves the
+  # cross-compile works from any platform.
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -56,9 +62,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Install PulseAudio dev headers
-        run: sudo apt-get update && sudo apt-get install -y libpulse-dev
 
       - name: Verify (linux/amd64)
         run: |

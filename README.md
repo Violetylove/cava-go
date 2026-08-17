@@ -4,7 +4,7 @@ Windows 终端音频可视化器 —— Linux [cava](https://github.com/karlstav
 
 ## 特性
 
-- **捕获系统输出音频**（WASAPI loopback，事件驱动，无需声卡「立体声混音」）
+- **捕获系统输出音频**（WASAPI loopback，事件驱动，无需声卡「立体声混音」；Linux 为 PulseAudio monitor，**纯 Go native protocol 实现，无 cgo**）
 - **柱状频谱**：对数频率刻度、半块字符 2 倍垂直精度、自动增益（autosens）
 - **双色垂直渐变**（可配置）、峰值回落动画（falloff）、相邻柱条平滑
 - **120fps 平滑渲染**（差异刷新，仅更新变化的格子）
@@ -21,7 +21,13 @@ go build -ldflags "-X main.version=v1.0.0" -o cava.exe ./cmd/cava
 
 或直接运行：`go run ./cmd/cava`。
 
-**Linux 构建**需安装 PulseAudio 开发头文件：`sudo apt install libpulse-dev`（Windows 构建无需任何依赖）。**交叉编译**：Linux 版含 cgo，需在 Linux 环境编译（CI 的 `build-linux` job 在 ubuntu runner 原生构建）；Windows 版无 cgo，可任意交叉编译。
+**Linux 构建无任何外部依赖**：PulseAudio 后端为纯 Go 实现的 native protocol 客户端（无 cgo、无需 `libpulse-dev`），因此**任意平台都可交叉编译** Linux 版：
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o cava-linux ./cmd/cava
+```
+
+Windows 版本就无 cgo，同样可任意交叉编译。Linux 版需要运行环境中存在 PulseAudio（`@DEFAULT_MONITOR@`），协议版本 ≥ 34（PA 14.0+）。
 
 首次运行会在 `%APPDATA%/cava-go/config.toml`（Linux 为 `~/.config/cava-go/config.toml`）自动生成**带注释的默认配置**。
 
@@ -62,7 +68,7 @@ go build -ldflags "-X main.version=v1.0.0" -o cava.exe ./cmd/cava
 ## 技术栈
 
 - [go-wca](https://github.com/moutend/go-wca) —— Windows WASAPI loopback 音频捕获
-- libpulse-dev —— Linux PulseAudio 输出捕获（`@DEFAULT_MONITOR@`）
+- PulseAudio native protocol —— Linux 输出捕获（`@DEFAULT_MONITOR@`，纯 Go 实现，无 cgo）
 - [gonum dsp/fourier](https://pkg.go.dev/gonum.org/v1/gonum/dsp/fourier) —— FFT
 - [tcell/v2](https://github.com/gdamore/tcell) —— 终端渲染
 - [go-toml/v2](https://github.com/pelletier/go-toml) —— 配置解析
