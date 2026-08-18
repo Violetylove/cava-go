@@ -40,7 +40,7 @@ Windows 终端音频可视化器（Linux cava 的复刻，Go 实现）：捕获�
 ## Notes
 
 - **状态：v1.0.0 已发布**（M0-M5 全部完成）；平台：Windows + Linux（2026-08-16 新增）；**全平台无 cgo**（2026-08-17 Linux 后端去 cgo，任意平台可交叉编译）；已知限制：macOS 未实现、真彩色不降级、默认设备切换不自动重连、仅 spectrum 一种可视化、Linux 要求 PulseAudio 协议 ≥ 34（PA 14.0+，老版本不支持）
-- **Linux 构建**：无外部依赖（纯 Go native protocol，无需 libpulse-dev）；`CGO_ENABLED=0 GOOS=linux` 任意平台交叉编译；CI：windows/ubuntu 双原生 job（各跑本平台 vet/test），**ubuntu job 内含 `CGO_ENABLED=0` 交叉编译 Windows 目标验证**
+- **Linux 构建**：无外部依赖（纯 Go native protocol，无需 libpulse-dev）；`CGO_ENABLED=0 GOOS=linux` 任意平台交叉编译；CI：`test` job 双平台（windows/ubuntu）原生跑 vet/test，`release` job 用 **`wangyoucao577/go-release-action` 矩阵**（windows/amd64 + linux/amd64）交叉编译并上传 Release assets
 - 已知坑与调试经验：见 `docs/PROJECT.md` 附录 D（go-wca padding、AUDCLNT_S_BUFFER_EMPTY、Hann 窗补偿、RMS vs 峰值增益、终端无真圆角、运行期 stderr 日志污染、时间驱动 falloff、instFloor 死区、CRLF 行尾噪音、**PulseAudio native protocol 要点：pstream 帧头/命令号/TLV 编码随协议版本变化、SCM_CREDENTIALS 认证、数据突发需 10ms 切片、WSLg PULSE_SERVER 路径陷阱**）
 - go-wca v0.3.0 模块不含 `_example`（示例只在 GitHub 仓库）；离线开发以 `pkg/wca` 源码为准
 - （待补充）

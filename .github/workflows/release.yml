@@ -1,10 +1,11 @@
-# Builds cava.exe and cava-linux on every version tag (v*) and attaches
-# them to a GitHub Release with auto-generated release notes.
+# Builds and attaches cava-go binaries for windows/amd64 and linux/amd64
+# to a GitHub Release on every version tag (v*).
 #
-# Two native jobs (windows-latest, ubuntu-latest) run vet and unit tests
-# on their own platforms. The ubuntu job additionally cross-compiles the
-# Windows target with CGO_ENABLED=0 — the whole project is cgo-free, so
-# cross-compilation works from any platform without libpulse-dev.
+# - `test`: verifies vet + unit tests natively on both platforms
+#   (unit tests must run on their own OS; no cgo anywhere).
+# - `release`: matrix over [windows/amd64, linux/amd64] using
+#   wangyoucao577/go-release-action, which cross-compiles with
+#   CGO_ENABLED=0 and uploads the packaged binaries as release assets.
 name: Release
 
 on:
@@ -16,8 +17,12 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: windows-latest
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,50 +37,32 @@ jobs:
           go vet ./...
           go test ./...
 
-      - name: Build (windows/amd64)
-        run: |
-          go build -trimpath `
-            -ldflags "-s -w -X main.version=${{ github.ref_name }}" `
-            -o cava.exe ./cmd/cava
-          .\cava.exe -version
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: cava.exe
-          generate_release_notes: true
-
-  # Cross-platform guard: the Linux backend is pure Go (no cgo, no
-  # libpulse), so this job verifies vet/tests on linux natively, attaches
-  # the Linux binary, and proves the no-cgo cross-compile works by
-  # building the Windows target from the ubuntu runner.
-  build-linux:
-    runs-on: ubuntu-latest
+  release:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            os: windows-latest
+          - goos: linux
+            goarch: amd64
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Build and upload
+        uses: wangyoucao577/go-release-action@v1
         with:
-          go-version-file: go.mod
-
-      - name: Verify (linux/amd64)
-        run: |
-          go vet ./...
-          go test ./...
-
-      - name: Cross-compile windows (CGO_ENABLED=0, no cgo)
-        run: |
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o cava-windows-cross.exe ./cmd/cava
-
-      - name: Build (linux/amd64)
-        run: |
-          go build -trimpath \
-            -ldflags "-s -w -X main.version=${{ github.ref_name }}" \
-            -o cava-linux ./cmd/cava
-
-      - name: Upload Linux binary
-        uses: softprops/action-gh-release@v2
-        with:
-          files: cava-linux
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          goversion: "1.26"
+          project_path: ./cmd/cava
+          binary_name: cava
+          ldflags: "-s -w -X main.version=${{ github.ref_name }}"
+          md5sum: false
+          sha256sum: true

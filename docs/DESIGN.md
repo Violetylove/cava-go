@@ -178,7 +178,7 @@ Windows 上捕获"系统正在播放的音频"的标准途径是 **WASAPI loopba
 - **数据节奏**：服务端 record 数据按大块突发到达，读取循环按 **10ms（480 帧）切片**投递（模拟旧 `pa_simple` 轮询节奏），避免 DSP 的陈旧判定误触发（见 §5.3）；
 - **服务器解析**：`PULSE_SERVER` 环境变量（`unix:`/`tcp:`/裸路径）优先，否则按 libpulse 顺序尝试 `$XDG_RUNTIME_DIR/pulse/native`、`/run/user/<uid>/pulse/native`、`~/.pulse/native`、`/var/run/pulse/native`；
 - 工厂：`internal/audio/source_linux.go` 的 `NewSource()` 返回 `PulseSource`（Windows 对应 `NewWasapiSource`）；
-- **交叉编译**：无 cgo，任意平台 `CGO_ENABLED=0 GOOS=linux` 直接产出静态 ELF（CI：ubuntu runner 原生构建 Linux 并交叉编译 Windows 目标验证，windows runner 原生构建 Windows）；
+- **交叉编译**：无 cgo，任意平台 `CGO_ENABLED=0 GOOS=linux` 直接产出静态 ELF（CI：`release` job 用 `wangyoucao577/go-release-action` 矩阵 windows/amd64 + linux/amd64 交叉编译并上传，`test` job 双平台原生跑单测）；
 - 已知差异：PulseAudio monitor 在无播放时**不产生数据**（与 WASAPI 静音填充不同），静音判定由 dsp 的数据陈旧检测兜底。
 
 ---
