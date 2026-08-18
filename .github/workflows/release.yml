@@ -3,7 +3,10 @@
 #
 # - `test`: verifies vet + unit tests natively on both platforms
 #   (unit tests must run on their own OS; no cgo anywhere).
-# - `release`: matrix over [windows/amd64, linux/amd64] using
+# - `release`: creates the GitHub Release (go-release-action only uploads
+#   assets, it does not create releases).
+# - `build`: matrix over [windows/amd64, linux/amd64] on ubuntu runners
+#   (go-release-action is a docker action and only runs on Linux) using
 #   wangyoucao577/go-release-action, which cross-compiles with
 #   CGO_ENABLED=0 and uploads the packaged binaries as release assets.
 name: Release
@@ -39,17 +42,24 @@ jobs:
 
   release:
     needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  build:
+    needs: [test, release]
     strategy:
       fail-fast: false
       matrix:
         include:
           - goos: windows
             goarch: amd64
-            os: windows-latest
           - goos: linux
             goarch: amd64
-            os: ubuntu-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
